@@ -1,0 +1,258 @@
+/* ============================================================================
+ * assets/css/cotizaciones_mejoras.css
+ * ----------------------------------------------------------------------------
+ * Estilos complementarios para las mejoras del módulo de cotizaciones:
+ *   - Banner de previsualización de código
+ *   - Lista de cuentas bancarias automáticas
+ *   - Modal de seguimiento comercial
+ *   - Buscador de rubros
+ *
+ * Cargar DESPUÉS del CSS principal de la aplicación.
+ * ============================================================================ */
+
+/* ---- Banner de código previsualizado ---- */
+#codigoPreviewBanner {
+    background: linear-gradient(to right, #e3f2fd, #f3f9ff);
+    border-left: 4px solid #1976d2;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#codigoPreviewBanner strong {
+    color: #2c3e50;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+#codigoPreviewValue {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    color: #1976d2;
+    letter-spacing: 1px;
+}
+
+#codigoPreviewWarning {
+    color: #f57c00;
+    font-size: 11px;
+    background: #fff8e1;
+    padding: 4px 8px;
+    border-radius: 3px;
+    border-left: 3px solid #ffc107;
+}
+
+/* ---- Lista de cuentas bancarias automáticas (en form de cotización) ---- */
+.cuentas-lista-form {
+    margin-top: 8px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 11px;
+    border: 1px solid #e0e0e0;
+}
+
+.cuentas-lista-form strong {
+    color: #2c3e50;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.cuentas-lista-form ul {
+    margin: 4px 0 0 18px;
+    padding: 0;
+    list-style: disc;
+}
+
+.cuentas-lista-form li {
+    margin-bottom: 2px;
+    color: #2c3e50;
+}
+
+.cuentas-lista-form .cuenta-meta {
+    font-size: 10px;
+    color: #7f8c8d;
+    margin-top: 4px;
+}
+
+/* ---- Buscador de rubros ---- */
+.rubro-search-bar {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.rubro-search-bar .search-field {
+    flex: 1;
+    min-width: 220px;
+}
+
+.rubro-search-bar .search-field label {
+    font-size: 11px;
+    color: #7f8c8d;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.rubro-search-bar .search-field input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.rubro-search-bar .search-actions {
+    display: flex;
+    gap: 6px;
+}
+
+/* ---- Modal de seguimiento comercial ---- */
+#segModalContent .seg-stat {
+    background: #f8f9fa;
+    padding: 10px 14px;
+    border-radius: 6px;
+    border-left: 3px solid #1976d2;
+}
+
+#segModalContent .seg-stat strong {
+    display: block;
+    font-size: 10px;
+    color: #7f8c8d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+#segModalContent .seg-stat .seg-stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1976d2;
+}
+
+#segModalContent .seg-form {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 12px;
+    margin: 12px 0;
+}
+
+#segModalContent .seg-form h4 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: #2c3e50;
+}
+
+#segModalContent .seg-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+#segModalContent .seg-form-grid label {
+    font-size: 11px;
+    color: #7f8c8d;
+    display: block;
+    margin-bottom: 4px;
+}
+
+#segModalContent .seg-form-grid select,
+#segModalContent .seg-form-grid input,
+#segModalContent .seg-form-grid textarea {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+#segModalContent .seg-historial-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+#segModalContent .seg-historial-table thead th {
+    background: #f9fafc;
+    padding: 8px 6px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+#segModalContent .seg-historial-table tbody td {
+    padding: 6px;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+#segModalContent .seg-historial-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+/* ---- Ocultar Zona Pricing en formularios (override del JS) ---- */
+#id_zona_pricing,
+label[for="id_zona_pricing"] {
+    display: none !important;
+}
+
+/* ---- Indicador de seguimientos en listado ---- */
+.seg-counter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #e3f2fd;
+    color: #1976d2;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #1976d2;
+    transition: all 0.2s;
+}
+
+.seg-counter-badge:hover {
+    background: #1976d2;
+    color: #fff;
+}
+
+.seg-counter-badge.zero {
+    background: #f5f5f5;
+    color: #95a5a6;
+    border-color: #e0e0e0;
+    cursor: default;
+}
+
+.seg-counter-badge.zero:hover {
+    background: #f5f5f5;
+    color: #95a5a6;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 768px) {
+    #codigoPreviewBanner #codigoPreviewValue {
+        font-size: 14px;
+    }
+    .rubro-search-bar {
+        flex-direction: column;
+    }
+    .rubro-search-bar .search-field,
+    .rubro-search-bar .search-actions {
+        width: 100%;
+    }
+    #segModalContent .seg-form-grid {
+        grid-template-columns: 1fr;
+    }
+}

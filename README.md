@@ -1,222 +1,134 @@
-# FIX DEFINITIVO — Error `nvarchar(max) → varbinary(max)` + Permisos
+# VERSIÓN 6 — Fix del bug en script SQL 10
 
-Esta versión **v2** corrige definitivamente el error que seguías viendo.
-La versión anterior usaba `PDO::PARAM_LOB` que tiene un bug en
-`pdo_sqlsrv 5.11/5.12 con PHP 8.x` y manda el binario como
-`NVARCHAR(MAX)` incluso a través del SP.
+## BUG CORREGIDO
 
-**Solución v2:** mandar el archivo como **base64 (string NVARCHAR)**
-al SP `sp_ticket_documento_save`. El SP lo decodifica dentro de SQL
-Server usando `CONVERT(XML, ...).value('xs:base64Binary(...)')`. Como
-**ningún parámetro desde PHP es VARBINARY**, el driver nunca necesita
-hacer conversión implícita y el error desaparece.
-
----
-
-## Estructura del paquete (lista para subir)
-
-```
-Atenciones-fixed/
-├── README.md                              ← este archivo
-├── scripts_sql/
-│   ├── 01_fix_upload_varbinary.sql        ← ejecutar en SQL Server
-│   ├── 01b_verificar_sp.sql               ← ejecutar para verificar (opcional)
-│   ├── 02_sp_usuario_permisos.sql         ← ejecutar en SQL Server
-│   └── 03_seed_modulos.sql                ← ejecutar en SQL Server
-├── includes/
-│   └── PermisoHelper.php                  ← archivo nuevo
-├── api/routes/
-│   └── tickets.php                        ← reemplaza al original (fix v2)
-├── assets/js/
-│   └── app.js                             ← reemplaza al original (fix permisos)
-└── test_upload_fix.php                    ← BORRAR después de probar
-```
-
----
-
-## PASO 1 — Ejecutar los scripts SQL (¡IMPORTANTE: EN ORDEN!)
-
-Conéctate a SQL Server Management Studio sobre `MonosyncERP` y ejecuta:
-
-```
-1. scripts_sql/01_fix_upload_varbinary.sql   ← crea el SP
-2. scripts_sql/01b_verificar_sp.sql          ← verifica que todo esté OK
-3. scripts_sql/02_sp_usuario_permisos.sql    ← crea SPs de permisos
-4. scripts_sql/03_seed_modulos.sql           ← puebla catálogo de módulos
-```
-
-El script `01b_verificar_sp.sql` es nuevo y te dirá exactamente si el SP
-está bien instalado y si la decodificación base64 funciona. **Si dice
-algún [FAIL], no sigas** — resuelve eso primero.
-
-### Verificación rápida (manual)
+En la V5, el script `10_fix_tipos_cotizacion.sql` tenía una sentencia **CTE + UPDATE** rota:
 
 ```sql
--- Deben aparecer 9 módulos:
-SELECT codigo, nombre FROM dbo.modulo_catalogo ORDER BY orden;
-
--- Deben existir los 3 SPs:
-SELECT name FROM sys.objects
-WHERE name IN (
-    'sp_ticket_documento_save',
-    'sp_ticket_documento_get',
-    'sp_usuario_permisos_get'
-);
-
--- Ver parámetros del SP de subida:
-SELECT name, TYPE_NAME(system_type_id) AS tipo
-FROM sys.parameters
-WHERE object_id = OBJECT_ID(N'dbo.sp_ticket_documento_save')
-ORDER BY parameter_id;
+-- SENTENCIA ROTA (V5):
+;WITH duplicados AS (
+    SELECT id_tipo,
+           ROW_NUMBER() OVER (PARTITION BY prefijo_codigo ORDER BY id_tipo) AS rn
+    FROM dbo.cotizacion_tipo_catalogo
+    WHERE activo = 1
+      AND prefijo_codigo IN ('SERV','VENT')
+)
+UPDATE duplicados
+SET activo = 0   -- ← ERROR: la CTE no expone 'activo'
+;
 ```
 
----
-
-## PASO 2 — Subir los archivos al servidor
-
-Sube manteniendo la estructura de carpetas:
-
-| Archivo local (este paquete)      | Ruta destino en el servidor                | Acción         |
-|-----------------------------------|--------------------------------------------|----------------|
-| `includes/PermisoHelper.php`      | `includes/PermisoHelper.php`               | **NUEVO**      |
-| `api/routes/tickets.php`          | `api/routes/tickets.php`                   | **REEMPLAZAR** |
-| `assets/js/app.js`                | `assets/js/app.js`                         | **REEMPLAZAR** |
-| `test_upload_fix.php`             | `test_upload_fix.php`                      | **TEMPORAL**   |
-
-> **No subas los `.sql` al servidor web** — se ejecutan en SQL Server,
-> no se necesitan en el hosting PHP.
-
----
-
-## PASO 3 — Registrar PermisoHelper en `api/index.php`
-
-Abrir `api/index.php` y agregar la línea marcada con `// <-- agregar`
-justo después de los otros `require_once` de `includes/`:
-
-```php
-require_once __DIR__ . '/../config/database.php';
-require_once __DIR__ . '/../includes/api_response.php';
-require_once __DIR__ . '/../includes/session.php';
-require_once __DIR__ . '/../includes/auth.php';
-require_once __DIR__ . '/../includes/PermisoHelper.php';  // <-- agregar
-require_once __DIR__ . '/../includes/audit.php';
+La CTE solo exponía `id_tipo` y `rn`, no `activo`. Esto causaba:
+```
+Msg 207, Level 16, State 1, Line 53
+Invalid column name 'activo'.
 ```
 
----
+Y abortaba el resto del script.
 
-## PASO 4 — Probar el fix con `test_upload_fix.php`
+## FIX V6
 
-1. Sube `test_upload_fix.php` a la raíz del proyecto (junto a `index.php`).
-2. Ábrelo en el navegador: `https://tu-dominio/test_upload_fix.php`
-3. Verás 5 pruebas. **Todas deben decir `[OK]`**.
+El script corregido elimina esa sentencia rota y usa directamente el JOIN (que sí funciona):
 
-Si alguna dice `[FAIL]`:
-- **PRUEBA 1 falla**: no ejecutaste `01_fix_upload_varbinary.sql`.
-- **PRUEBA 2 falla**: tu tabla `ticket_documento` no tiene la columna
-  `contenido`. Ejecuta primero el script del repo `scripts_sql/15_*.sql`
-  que añade esa columna.
-- **PRUEBA 3 falla**: tu SQL Server no soporta XML xs:base64Binary
-  (requiere SQL Server 2016+).
-- **PRUEBA 4 falla**: hay un problema con la llamada al SP desde PHP.
-  El mensaje mostrará el error exacto.
-
-**Después de probar: BORRA `test_upload_fix.php`** del servidor
-(expone datos internos).
-
----
-
-## PASO 5 — Probar en la app real
-
-1. Inicia sesión en la app.
-2. Abre un ticket existente.
-3. Sube un PDF o imagen pequeña (1-2 MB para empezar).
-4. Debe aparecer en la lista de documentos sin error.
-
-Si sigue fallando, **copia el mensaje exacto del error** y pásalo por
-aquí. Pero con el fix v2 (base64) el error `nvarchar → varbinary` es
-imposible porque ningún parámetro PHP va como binario.
-
----
-
-## ¿Qué cambió respecto a la versión anterior?
-
-### v1 (no funcionó)
-- PHP mandaba el binario con `PDO::PARAM_LOB` al SP.
-- El driver `pdo_sqlsrv` tenía un bug y lo enviaba como `NVARCHAR(MAX)`.
-- SQL Server seguía rechazando con el mismo error.
-
-### v2 (esta versión — definitivo)
-- PHP hace `base64_encode($binario)` → string NVARCHAR(MAX).
-- El SP recibe `@base64_contenido NVARCHAR(MAX)` — tipo que coincide.
-- Dentro del SP: `CONVERT(XML, '<x>' + @base64 + '</x>').value('xs:base64Binary(/x[1])', 'VARBINARY(MAX)')`
-- **Ningún parámetro PHP es VARBINARY**, así que el bug del driver no aplica.
-
----
-
-## Fix permisos (sin cambios respecto a v1)
-
-`assets/js/app.js` incluye:
-- `applyPermissionsToDynamic(root)` — oculta elementos con
-  `data-requires-permission="MODULO:accion"`.
-- `startPermissionObserver()` — MutationObserver que reaplica permisos
-  automáticamente cuando se renderizan nuevas vistas.
-- `permissionAttrs(modulo, accion)` — helper para template strings.
-- Atajos: `App.canView/canCreate/canEdit/canDelete/canApprove/canExport/canPrint`.
-
-Para ocultar botones en `views.js`, márcalos:
-
-```html
-<button class="btn btn-primary"
-        data-requires-permission="TICKETS:registrar">
-    Nuevo Ticket
-</button>
-
-<button class="btn btn-danger"
-        data-requires-permission="TICKETS:eliminar">
-    Eliminar
-</button>
+```sql
+-- SENTENCIA CORREGIDA (V6):
+UPDATE t
+SET t.activo = 0
+FROM dbo.cotizacion_tipo_catalogo t
+INNER JOIN (
+    SELECT id_tipo,
+           ROW_NUMBER() OVER (PARTITION BY prefijo_codigo ORDER BY id_tipo) AS rn
+    FROM dbo.cotizacion_tipo_catalogo
+    WHERE prefijo_codigo IN ('SERV','VENT')
+      AND activo = 1
+) x ON t.id_tipo = x.id_tipo
+WHERE x.rn > 1;
 ```
 
-O usando helpers en template strings:
+Esta sentencia sí funciona porque actualiza la tabla real `t` (no la CTE) y el JOIN expone la columna `id_tipo` para identificar las filas a desactivar.
 
-```js
-container.innerHTML = `
-  <button ${App.permissionAttrs('TICKETS','registrar')}>Nuevo</button>
-  ${App.canDelete('TICKETS') ? `<button onclick="eliminar()">Eliminar</button>` : ''}
-`;
-```
-
----
-
-## Resumen técnico del fix de subida
+## ARCHIVOS DE LA V6
 
 ```
-ANTES (roto):
-   PHP: $binario = file_get_contents(...)
-   PHP: $stmt->bindValue(9, $binario, PDO::PARAM_LOB)
-   Driver pdo_sqlsrv: envía como NVARCHAR(MAX)  ← BUG
-   SQL Server: INSERT INTO ticket_documento (contenido) VALUES (?)
-   SQL Server: rechaza "nvarchar(max) → varbinary(max) not allowed"
-
-DESPUÉS (fix v2):
-   PHP: $binario = file_get_contents(...)
-   PHP: $base64 = base64_encode($binario)        ← string NVARCHAR
-   PHP: $stmt->bindValue(9, $base64, PDO::PARAM_STR)
-   Driver pdo_sqlsrv: envía como NVARCHAR(MAX)   ← sin problemas
-   SQL Server: EXEC sp_ticket_documento_save @base64_contenido = ?
-   SP: CONVERT(XML, '<x>'+@base64+'</x>').value('xs:base64Binary(/x[1])', 'VARBINARY(MAX)')
-   SP: INSERT INTO ticket_documento (contenido) VALUES (@contenido_final)
-   → OK, sin conversión implícita
+entrega_v6/
+├── README.md                          Esta guía
+├── test_v3.php                        Sin cambios
+├── nueva_cotizacion_v3.php            Sin cambios
+├── config_logo_v3.php                 Sin cambios
+├── seguimiento_comercial_v3.php       Sin cambios
+├── asignar_codigo_v3.php              Sin cambios
+└── scripts_sql/
+    └── 10_fix_tipos_cotizacion.sql    CORREGIDO (eliminada sentencia CTE rota)
 ```
 
----
+## INSTALACIÓN
 
-## Si necesitas ayuda
+### PASO 1 — Ejecutar el SQL corregido con `sa`
 
-Si después de aplicar todo sigues viendo el error:
-1. Verifica con `test_upload_fix.php` — debe dar todo `[OK]`.
-2. Verifica que subiste `tickets.php` a la ruta correcta
-   (`api/routes/tickets.php`) y reemplazó al anterior.
-3. Borra caché del navegador (Ctrl+Shift+R) por si el JS viejo sigue
-   activo.
-4. Copia el mensaje exacto del error y pásalo.
+```sql
+USE [MonosyncERP];
+-- Ejecutar el archivo: scripts_sql/10_fix_tipos_cotizacion.sql
+```
+
+Esta vez **no debe dar error**. Al final debe imprimir:
+
+```
+  Total de tipos activos: 2
+  ✓ OK — Exactamente 2 tipos activos.
+```
+
+### PASO 2 — Verificar manualmente
+
+```sql
+SELECT id_tipo, codigo, nombre, prefijo_codigo, activo
+FROM dbo.cotizacion_tipo_catalogo
+WHERE activo = 1
+ORDER BY id_tipo;
+```
+
+Debe devolver exactamente 2 filas:
+- Una con `prefijo_codigo = 'SERV'` (probablemente ID=8)
+- Una con `prefijo_codigo = 'VENT'` (probablemente ID=9)
+
+### PASO 3 — Verificar el formulario de nueva cotización
+
+Acceda a `http://localhost:8036/nueva_cotizacion_v3.php` (después de iniciar sesión).
+
+En el combo "Tipo de cotización" solo deben aparecer **2 opciones**:
+- Soporte (SERV)
+- Ventas (VENT)
+
+### PASO 4 — Si las páginas PHP ya funcionaban en V5
+
+No necesita reemplazarlas — son idénticas. Solo necesita volver a ejecutar el script SQL corregido.
+
+## SI EL ERROR PERSISTE
+
+Si después de ejecutar el script V6 sigue viendo más de 2 tipos activos, ejecute manualmente:
+
+```sql
+-- Ver qué hay
+SELECT id_tipo, codigo, nombre, prefijo_codigo, activo
+FROM dbo.cotizacion_tipo_catalogo
+ORDER BY activo DESC, id_tipo;
+
+-- Desactivar todos excepto los 2 que queremos (reemplace los IDs)
+UPDATE dbo.cotizacion_tipo_catalogo
+SET activo = 0
+WHERE id_tipo NOT IN (8, 9);  -- 8=SERV, 9=VENT (ajuste según su BD)
+
+-- Verificar
+SELECT id_tipo, codigo, prefijo_codigo, activo
+FROM dbo.cotizacion_tipo_catalogo
+WHERE activo = 1;
+-- Debe devolver solo 2 filas
+```
+
+## RESUMEN DE VERSIONES
+
+| Versión | Problema corregido |
+|---------|--------------------|
+| V1-V3 | Patches JS que no se aplicaban por la SPA |
+| V4 | Páginas PHP independientes, pero no compartían sesión |
+| V5 | Fix de autenticación (`startAppSession()`) + script SQL 10 (con bug) |
+| **V6** | **Fix del bug en script SQL 10** (sentencia CTE+UPDATE rota) |

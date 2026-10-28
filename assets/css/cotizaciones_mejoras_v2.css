@@ -1,0 +1,190 @@
+/* ============================================================================
+ * assets/css/cotizaciones_mejoras_v2.css
+ * ----------------------------------------------------------------------------
+ * Estilos complementarios para la V2.
+ * ============================================================================ */
+
+/* ---- Banner de previsualización de código v2 ---- */
+#codigoPreviewBannerV2 {
+    background: linear-gradient(to right, #e3f2fd, #f3f9ff);
+    border-left: 4px solid #1976d2;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+}
+#codigoPreviewValueV2 {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: #1976d2;
+    letter-spacing: 1px;
+}
+#codigoPreviewWarningV2 {
+    color: #f57c00;
+    font-size: 11px;
+    background: #fff8e1;
+    padding: 4px 8px;
+    border-radius: 3px;
+    border-left: 3px solid #ffc107;
+}
+
+/* ---- Bloque visual de cuentas bancarias (3 en uno) ---- */
+#cuentasBloqueVisual {
+    margin-top: 6px;
+    padding: 10px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+}
+
+#cuentasBloqueVisual .cuenta-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: #fff;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+    font-size: 12px;
+    margin-bottom: 4px;
+    transition: all 0.2s;
+}
+
+#cuentasBloqueVisual .cuenta-item:hover {
+    border-color: #1976d2;
+    box-shadow: 0 1px 3px rgba(25, 118, 210, 0.1);
+}
+
+#cuentasBloqueVisual .cuenta-item:last-child {
+    margin-bottom: 0;
+}
+
+#cuentasBloqueVisual .cuenta-item .cuenta-numero {
+    color: #7f8c8d;
+    font-size: 11px;
+    font-family: 'Consolas', monospace;
+}
+
+#cuentasBloqueVisual .cuenta-item .cuenta-moneda {
+    background: #28a745;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+#cuentasBloqueVisual .cuenta-item .cuenta-principal {
+    font-size: 9px;
+    color: #1976d2;
+    margin-top: 2px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+/* ---- Badge de estado ---- */
+.estado-badge-cot {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ---- Botón de seguimiento (badge contador) ---- */
+.seg-counter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #e3f2fd;
+    color: #1976d2;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #1976d2;
+    transition: all 0.2s;
+}
+
+.seg-counter-badge:hover {
+    background: #1976d2;
+    color: #fff;
+    transform: scale(1.05);
+}
+
+.seg-counter-badge.zero {
+    background: #f5f5f5;
+    color: #95a5a6;
+    border-color: #e0e0e0;
+    cursor: default;
+}
+
+.seg-counter-badge.zero:hover {
+    background: #f5f5f5;
+    color: #95a5a6;
+    transform: none;
+}
+
+/* ---- Vista de configuración de logo ---- */
+.config-logo-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+.config-logo-row:hover {
+    background: #f8f9fa;
+}
+
+/* ---- Vista de seguimiento comercial ---- */
+.seg-comercial-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    gap: 10px;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    align-items: flex-end;
+}
+
+@media (max-width: 768px) {
+    .seg-comercial-filters {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ---- Banner de modo edición ---- */
+.modo-edicion-banner {
+    padding: 10px 14px;
+    background: #fff3cd;
+    border-left: 4px solid #ffc107;
+    border-radius: 4px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    color: #856404;
+}
+
+/* ---- Botones de menú adicionales ---- */
+a[href^="#/config-logo"],
+a[href^="#/seguimiento-comercial"] {
+    display: block !important;
+    padding: 8px 12px !important;
+    color: inherit !important;
+    text-decoration: none !important;
+    font-size: 13px !important;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+a[href^="#/config-logo"]:hover,
+a[href^="#/seguimiento-comercial"]:hover {
+    background: #e3f2fd;
+    color: #1976d2 !important;
+}
