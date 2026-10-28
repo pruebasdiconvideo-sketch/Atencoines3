@@ -1,0 +1,13 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Sensitive configuration files
+db_iis_php_setup/.db_config.json
+db_iis_php_setup/db_config.php.local
+*.db_config.json

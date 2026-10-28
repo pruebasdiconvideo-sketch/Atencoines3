@@ -1,0 +1,103 @@
+{
+  "name": "Sistema de Atenciones MonosyncERP",
+  "short_name": "Atenciones",
+  "description": "Sistema de gestion de tickets y atenciones tecnicas - MonosyncERP",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#f0f1f2",
+  "theme_color": "#304753",
+  "lang": "es-PE",
+  "dir": "ltr",
+  "categories": ["productivity", "business", "utilities"],
+  "icons": [
+    {
+      "src": "/assets/img/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/img/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/img/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuevo Ticket",
+      "short_name": "Nuevo",
+      "description": "Crear un nuevo ticket de atencion",
+      "url": "/tickets/new?source=shortcut",
+      "icons": [
+        { "src": "/assets/img/shortcut-new.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Mis Tickets",
+      "short_name": "Mios",
+      "description": "Tickets asignados a mi",
+      "url": "/tickets/mine?source=shortcut",
+      "icons": [
+        { "src": "/assets/img/shortcut-mine.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dash",
+      "description": "Tablero principal con KPIs",
+      "url": "/dashboard?source=shortcut",
+      "icons": [
+        { "src": "/assets/img/shortcut-dash.png", "sizes": "96x96", "type": "image/png" }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/assets/img/screenshot-mobile.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Vista movil del dashboard"
+    },
+    {
+      "src": "/assets/img/screenshot-desktop.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Vista desktop de tickets"
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "file_handlers": [
+    {
+      "action": "/tickets/new",
+      "accept": { "image/*": [".png", ".jpg", ".jpeg"], "application/pdf": [".pdf"] },
+      "icons": [{ "src": "/assets/img/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "share_target": {
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "action": "/api/v1/tickets/shared",
+    "params": {
+      "title": "name",
+      "text": "description",
+      "url": "url",
+      "files": [
+        { "name": "evidencia", "accept": ["image/*", "application/pdf"] }
+      ]
+    }
+  }
+}

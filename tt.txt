@@ -1,0 +1,141 @@
+PHP Warning:  Uncaught PDOException: SQLSTATE[08001]: [Microsoft][ODBC Driver 17 for SQL Server]TCP Provider: The wait operation timed out.
+ in C:\inetpub\wwwroot\v3\config\database.php:86
+Stack trace:
+#0 C:\inetpub\wwwroot\v3\config\database.php(86): PDO->__construct()
+#1 C:\inetpub\wwwroot\v3\diagnostico_completo.php(108): Database::connection()
+#2 {main}
+  thrown in C:\inetpub\wwwroot\v3\config\database.php on line 86
+PHP Fatal error:  Maximum execution time of 30 seconds exceeded in C:\inetpub\wwwroot\v3\config\database.php on line 95
+X-Powered-By: PHP/8.3.29
+Content-Type: text/plain; charset=UTF-8
+
+================================================================
+  DIAGNÃ“STICO COMPLETO â€” 502 Bad Gateway
+================================================================
+
+[1] INFORMACIÃ“N DEL SERVIDOR
+  PHP versiÃ³n:       8.3.29
+  SAPI:              cgi-fcgi
+  Hostname:          WIN-F31EASNBOTC
+  IP servidor:       WIN-F31EASNBOTC
+  Software servidor: Microsoft-IIS/10.0
+  Document root:     ?
+  Script path:       C:\inetpub\wwwroot\v3
+  php.ini loaded:    C:\php\php.ini
+  php.ini scanned:   ninguno
+
+[2] EXTENSIONES PHP CRÃTICAS
+  pdo:               OK (8.3.29)
+  pdo_sqlsrv:        OK (5.13.0+20227)
+  sqlsrv:            OK (5.13.0+20227)
+  openssl:           OK
+  mbstring:          FALTA
+  json:              OK
+  session:           OK
+
+[3] ARCHIVOS CRÃTICOS DEL PROYECTO
+  [OK] config/database.php (ConfiguraciÃ³n BD) â€” 10766 bytes
+  [OK] includes/auth.php (Clase Auth) â€” 10062 bytes
+  [OK] includes/session.php (SesiÃ³n) â€” 540 bytes
+  [OK] includes/api_response.php (API response helper) â€” 3278 bytes
+  [OK] includes/audit.php (AuditorÃ­a) â€” 5457 bytes
+  [OK] api/index.php (Router principal) â€” 7807 bytes
+  [OK] api/routes/auth.php (Endpoints auth) â€” 15316 bytes
+
+[4] CARGAR config/database.php
+  [OK] config/database.php cargado
+  Clase Database: OK
+  DB_HOST: SERVERDICON\SQL2025
+  DB_PORT: 1435
+  DB_NAME: MonosyncERP
+  DB_USER: sa
+  DSN:     sqlsrv:Server=SERVERDICON\SQL2025,1435;Database=MonosyncERP;Encrypt=no;TrustServerCertificate=yes
+
+[5] PROBAR CONEXIÃ“N A BASE DE DATOS
+<br />
+<b>Warning</b>:  Uncaught PDOException: SQLSTATE[08001]: [Microsoft][ODBC Driver 17 for SQL Server]TCP Provider: The wait operation timed out.
+ in C:\inetpub\wwwroot\v3\config\database.php:86
+Stack trace:
+#0 C:\inetpub\wwwroot\v3\config\database.php(86): PDO->__construct()
+#1 C:\inetpub\wwwroot\v3\diagnostico_completo.php(108): Database::connection()
+#2 {main}
+  thrown in <b>C:\inetpub\wwwroot\v3\config\database.php</b> on line <b>86</b><br />
+<br />
+<b>Fatal error</b>:  Maximum execution time of 30 seconds exceeded in <b>C:\inetpub\wwwroot\v3\config\database.php</b> on line <b>95</b><br />
+
+
+
+
+================================================================
+  TEST: Nombre vs IP (diagnóstico del timeout)
+================================================================
+
+Servidor APP (donde corre PHP): WIN-F31EASNBOTC
+PHP versión: 8.3.29
+pdo_sqlsrv: 5.13.0+20227
+
+--- Resolución DNS de 'SERVERDICON' ---
+[OK] 'SERVERDICON' resuelve a: 192.168.196.62
+
+--- Ping a 'SERVERDICON' ---
+
+Pinging SERVERDICON.local [fe80::a289:fe03:9082:145c%18] with 32 bytes of data:
+Reply from fe80::a289:fe03:9082:145c%18: time<1ms
+Reply from fe80::a289:fe03:9082:145c%18: time<1ms
+
+Ping statistics for fe80::a289:fe03:9082:145c%18:
+    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 0ms, Maximum = 0ms, Average = 0ms
+Exit code: 0
+
+--- Ping a '192.168.100.1' ---
+
+Pinging 192.168.100.1 with 32 bytes of data:
+Reply from 192.168.100.1: bytes=32 time<1ms TTL=128
+Reply from 192.168.100.1: bytes=32 time<1ms TTL=128
+
+Ping statistics for 192.168.100.1:
+    Packets: Sent = 2, Received = 2, Lost = 0 (0% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 0ms, Maximum = 0ms, Average = 0ms
+Exit code: 0 (OK)
+
+--- Test TCP puerto 1435 en 192.168.100.1 ---
+[OK] Puerto 1435 ABIERTO en 192.168.100.1
+
+================================================================
+PRUEBAS DE CONEXIÓN
+================================================================
+
+--- 1) SERVERDICON\SQL2025 (config ACTUAL — rota) ---
+  DSN: sqlsrv:Server=SERVERDICON\SQL2025;Database=MonosyncERP;Encrypt=no;TrustServerCertificate=yes;LoginTimeout=8
+  [FAIL] tras 8584ms — SQLSTATE[08001]: [Microsoft][ODBC Driver 17 for SQL Server]TCP Provider: The wait operation timed out.
+
+
+--- 2) SERVERDICON,1435 (nombre + puerto) ---
+  DSN: sqlsrv:Server=SERVERDICON,1435;Database=MonosyncERP;Encrypt=no;TrustServerCertificate=yes;LoginTimeout=8
+  [FAIL] tras 9446ms — SQLSTATE[08001]: [Microsoft][ODBC Driver 17 for SQL Server]TCP Provider: The wait operation timed out.
+
+
+--- 3) 192.168.100.1,1435 (IP + puerto — FIX) ---
+  DSN: sqlsrv:Server=192.168.100.1,1435;Database=MonosyncERP;Encrypt=no;TrustServerCertificate=yes;LoginTimeout=8
+  [OK] Conectado en 135ms — DB: MonosyncERP srv: SERVERDICON\SQL2025
+
+--- 4) 192.168.100.1\SQL2025 (IP + instancia) ---
+  DSN: sqlsrv:Server=192.168.100.1\SQL2025;Database=MonosyncERP;Encrypt=no;TrustServerCertificate=yes;LoginTimeout=8
+  [OK] Conectado en 244ms — DB: MonosyncERP srv: SERVERDICON\SQL2025
+
+================================================================
+RESUMEN
+================================================================
+  1) SERVERDICON\SQL2025:  FAIL ← tu config actual
+  2) SERVERDICON,1435:      FAIL
+  3) 192.168.100.1,1435:    OK ← FIX recomendado
+  4) 192.168.100.1\SQL2025: OK
+
+>>> CONFIRMADO: el problema es el nombre 'SERVERDICON'. <<<
+>>> El FIX es usar la IP 192.168.100.1 + puerto 1435. <<<
+>>> Reemplaza config/database.php por el archivo corregido. <<<
+
+*** BORRA ESTE ARCHIVO DESPUÉS DE PROBAR ***

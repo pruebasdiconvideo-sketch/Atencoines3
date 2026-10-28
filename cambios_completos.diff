@@ -1,0 +1,1205 @@
+diff --git a/.gitignore b/.gitignore
+old mode 100644
+new mode 100755
+diff --git a/.user.ini b/.user.ini
+old mode 100644
+new mode 100755
+diff --git a/03_cotizaciones_seed_productos.sql b/03_cotizaciones_seed_productos.sql
+old mode 100644
+new mode 100755
+diff --git a/README.md b/README.md
+old mode 100644
+new mode 100755
+diff --git a/README_COTIZACIONES.md b/README_COTIZACIONES.md
+old mode 100644
+new mode 100755
+diff --git a/api/index.php b/api/index.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/atenciones.php b/api/routes/atenciones.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/atenciones_v2.php b/api/routes/atenciones_v2.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/auditoria.php b/api/routes/auditoria.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/auth.php b/api/routes/auth.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/contactos.php b/api/routes/contactos.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/cotizaciones.php b/api/routes/cotizaciones.php
+old mode 100644
+new mode 100755
+index a8ff065..65fca61
+--- a/api/routes/cotizaciones.php
++++ b/api/routes/cotizaciones.php
+@@ -300,7 +300,7 @@ if ($method === 'GET' && $id === null) {
+                 $params[] = $search; $params[] = $search; $params[] = $search; $params[] = $search;
+             }
+ 
+-            $sql = "SELECT TOP (?) c.id_cotizacion, c.codigo, c.version_numero, c.estado,
++            $sql = "SELECT c.id_cotizacion, c.codigo, c.version_numero, c.estado,
+                     CONVERT(VARCHAR(10), c.fecha_creacion, 23) AS fecha_creacion,
+                     c.fecha_envio, c.fecha_aprobacion, c.fecha_cancelacion, c.fecha_cierre,
+                     c.fecha_proximo_seguimiento, c.titulo_documento, c.total, c.moneda,
+@@ -315,17 +315,21 @@ if ($method === 'GET' && $id === null) {
+                     LEFT JOIN dbo.persona p ON c.id_vendedor = p.id_persona
+                     LEFT JOIN dbo.persona pc ON c.id_usuario_creador = pc.id_persona
+                     $where
+-                    ORDER BY c.id_cotizacion DESC";
++                    ORDER BY c.id_cotizacion DESC
++                    OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+ 
+             $stmt2 = $pdo->prepare($sql);
+-            $stmt2->bindValue(1, $perPage * $page, PDO::PARAM_INT);
+-            foreach ($params as $i => $v) {
+-                $stmt2->bindValue($i + 2, $v);
++            // IMPORTANTE: los placeholders ? aparecen en orden: primero los del
++            // WHERE (uno por cada filtro activo), después OFFSET y FETCH.
++            // Por eso bindiamos en ese mismo orden: WHERE params, luego OFFSET, luego FETCH.
++            $bindIdx = 1;
++            foreach ($params as $v) {
++                $stmt2->bindValue($bindIdx++, $v);
+             }
++            $stmt2->bindValue($bindIdx++, ($page - 1) * $perPage, PDO::PARAM_INT);
++            $stmt2->bindValue($bindIdx++, $perPage, PDO::PARAM_INT);
+             $stmt2->execute();
+-            $allRows = $stmt2->fetchAll();
+-            // Paginar en PHP
+-            $rows = array_slice($allRows, ($page - 1) * $perPage, $perPage);
++            $rows = $stmt2->fetchAll();
+ 
+             // Total
+             $countSql = "SELECT COUNT(*) FROM dbo.cotizacion c INNER JOIN dbo.empresa e ON c.id_empresa = e.id_empresa $where";
+@@ -587,19 +591,52 @@ if ($method === 'GET' && $id !== null && is_numeric($id) && $action === null) {
+                 // El SP existe pero devolvió vacío. Consulta directa.
+                 $cabeceraStmt = $pdo->prepare('SELECT c.*,
+                     e.razon_social AS empresa_razon_social,
++                    e.nombre_comercial AS empresa_nombre_comercial,
+                     e.ruc AS empresa_ruc,
+                     e.correo AS empresa_correo,
+                     e.telefono AS empresa_telefono,
+-                    tc.nombre AS tipo_nombre,
++                    ec.cargo AS contacto_cargo,
++                    ec.telefono_empresa AS contacto_telefono,
++                    ec.correo_empresa AS contacto_correo,
++                    pp.nombres AS contacto_nombres,
++                    pp.apellido_paterno AS contacto_apellidos,
++                    s.nombre AS sucursal_nombre,
+                     tc.codigo AS tipo_codigo,
++                    tc.nombre AS tipo_nombre,
++                    tc.titulo_documento AS tipo_titulo_default,
+                     em.razon_social AS emisora_razon_social,
+                     em.ruc AS emisora_ruc,
++                    em.direccion AS emisora_direccion,
++                    em.telefono AS emisora_telefono,
++                    em.correo AS emisora_correo,
++                    em.logo_base64 AS emisora_logo,
++                    fp.descripcion AS forma_pago_descripcion,
++                    fp.descuento_pct AS forma_pago_descuento_pct,
++                    ga.descripcion AS garantia_descripcion,
++                    pl.descripcion AS plazo_entrega_descripcion,
++                    va.descripcion AS validez_descripcion,
++                    va.dias AS validez_dias,
++                    cb.banco AS cuenta_banco,
++                    cb.numero_cuenta AS cuenta_numero,
++                    cb.cci AS cuenta_cci,
++                    zp.codigo AS zona_codigo,
++                    zp.nombre AS zona_nombre,
+                     p.nombres + N\' \' + p.apellido_paterno AS vendedor_nombre,
+-                    uc.nombres + N\' \' + uc.apellido_paterno AS usuario_creador_nombre
++                    uc.nombres + N\' \' + uc.apellido_paterno AS usuario_creador_nombre,
++                    uc.correo AS usuario_creador_correo
+                     FROM dbo.cotizacion c
+                     LEFT JOIN dbo.empresa e ON c.id_empresa = e.id_empresa
++                    LEFT JOIN dbo.empresa_contacto ec ON c.id_empresa_contacto = ec.id_empresa_contacto
++                    LEFT JOIN dbo.persona pp ON ec.id_persona = pp.id_persona
++                    LEFT JOIN dbo.empresa_sucursal s ON c.id_sucursal = s.id_sucursal
+                     LEFT JOIN dbo.cotizacion_tipo_catalogo tc ON c.id_tipo = tc.id_tipo
+                     LEFT JOIN dbo.cotizacion_empresa_emisora em ON c.id_emisora = em.id_emisora
++                    LEFT JOIN dbo.cotizacion_forma_pago fp ON c.id_forma_pago = fp.id_forma_pago
++                    LEFT JOIN dbo.cotizacion_garantia ga ON c.id_garantia = ga.id_garantia
++                    LEFT JOIN dbo.cotizacion_plazo_entrega pl ON c.id_plazo_entrega = pl.id_plazo
++                    LEFT JOIN dbo.cotizacion_validez va ON c.id_validez = va.id_validez
++                    LEFT JOIN dbo.cotizacion_cuenta_bancaria cb ON c.id_cuenta_bancaria = cb.id_cuenta
++                    LEFT JOIN dbo.cotizacion_zona_pricing zp ON c.id_zona_pricing = zp.id_zona
+                     LEFT JOIN dbo.persona p ON c.id_vendedor = p.id_persona
+                     LEFT JOIN dbo.persona uc ON c.id_usuario_creador = uc.id_persona
+                     WHERE c.id_cotizacion = ?');
+@@ -619,70 +656,148 @@ if ($method === 'GET' && $id !== null && is_numeric($id) && $action === null) {
+             try { $stmt->nextRowset(); $documentos = $stmt->fetchAll(); } catch (Throwable $e) {}
+         } catch (Throwable $spEx) {
+             error_log('[Cotizaciones GET] SP sp_cotizacion_get falló: ' . $spEx->getMessage());
+-            // Fallback: consulta directa
++            // Fallback: consulta directa con todos los JOINs que el JS espera
+             $cabeceraStmt = $pdo->prepare('SELECT c.*,
+                 e.razon_social AS empresa_razon_social,
++                e.nombre_comercial AS empresa_nombre_comercial,
+                 e.ruc AS empresa_ruc,
+                 e.correo AS empresa_correo,
+                 e.telefono AS empresa_telefono,
+-                tc.nombre AS tipo_nombre,
++                ec.cargo AS contacto_cargo,
++                ec.telefono_empresa AS contacto_telefono,
++                ec.correo_empresa AS contacto_correo,
++                pp.nombres AS contacto_nombres,
++                pp.apellido_paterno AS contacto_apellidos,
++                s.nombre AS sucursal_nombre,
+                 tc.codigo AS tipo_codigo,
++                tc.nombre AS tipo_nombre,
++                tc.titulo_documento AS tipo_titulo_default,
+                 em.razon_social AS emisora_razon_social,
+                 em.ruc AS emisora_ruc,
++                em.direccion AS emisora_direccion,
++                em.telefono AS emisora_telefono,
++                em.correo AS emisora_correo,
++                em.logo_base64 AS emisora_logo,
++                fp.descripcion AS forma_pago_descripcion,
++                fp.descuento_pct AS forma_pago_descuento_pct,
++                ga.descripcion AS garantia_descripcion,
++                pl.descripcion AS plazo_entrega_descripcion,
++                va.descripcion AS validez_descripcion,
++                va.dias AS validez_dias,
++                cb.banco AS cuenta_banco,
++                cb.numero_cuenta AS cuenta_numero,
++                cb.cci AS cuenta_cci,
++                zp.codigo AS zona_codigo,
++                zp.nombre AS zona_nombre,
+                 p.nombres + N\' \' + p.apellido_paterno AS vendedor_nombre,
+-                uc.nombres + N\' \' + uc.apellido_paterno AS usuario_creador_nombre
++                uc.nombres + N\' \' + uc.apellido_paterno AS usuario_creador_nombre,
++                uc.correo AS usuario_creador_correo
+                 FROM dbo.cotizacion c
+                 LEFT JOIN dbo.empresa e ON c.id_empresa = e.id_empresa
++                LEFT JOIN dbo.empresa_contacto ec ON c.id_empresa_contacto = ec.id_empresa_contacto
++                LEFT JOIN dbo.persona pp ON ec.id_persona = pp.id_persona
++                LEFT JOIN dbo.empresa_sucursal s ON c.id_sucursal = s.id_sucursal
+                 LEFT JOIN dbo.cotizacion_tipo_catalogo tc ON c.id_tipo = tc.id_tipo
+                 LEFT JOIN dbo.cotizacion_empresa_emisora em ON c.id_emisora = em.id_emisora
++                LEFT JOIN dbo.cotizacion_forma_pago fp ON c.id_forma_pago = fp.id_forma_pago
++                LEFT JOIN dbo.cotizacion_garantia ga ON c.id_garantia = ga.id_garantia
++                LEFT JOIN dbo.cotizacion_plazo_entrega pl ON c.id_plazo_entrega = pl.id_plazo
++                LEFT JOIN dbo.cotizacion_validez va ON c.id_validez = va.id_validez
++                LEFT JOIN dbo.cotizacion_cuenta_bancaria cb ON c.id_cuenta_bancaria = cb.id_cuenta
++                LEFT JOIN dbo.cotizacion_zona_pricing zp ON c.id_zona_pricing = zp.id_zona
+                 LEFT JOIN dbo.persona p ON c.id_vendedor = p.id_persona
+                 LEFT JOIN dbo.persona uc ON c.id_usuario_creador = uc.id_persona
+                 WHERE c.id_cotizacion = ?');
+             $cabeceraStmt->execute([(int)$id]);
+             $cabecera = $cabeceraStmt->fetch();
+-            $detalle = $pdo->prepare('SELECT * FROM dbo.cotizacion_detalle WHERE id_cotizacion = ? ORDER BY orden');
+-            $detalle->execute([(int)$id]);
+-            $detalle = $detalle->fetchAll();
+-            $historial = $pdo->prepare('SELECT * FROM dbo.cotizacion_historial_estado WHERE id_cotizacion = ? ORDER BY fecha_cambio DESC');
+-            $historial->execute([(int)$id]);
+-            $historial = $historial->fetchAll();
++            $detalleStmt = $pdo->prepare('SELECT * FROM dbo.cotizacion_detalle WHERE id_cotizacion = ? ORDER BY orden');
++            $detalleStmt->execute([(int)$id]);
++            $detalle = $detalleStmt->fetchAll();
++            $historialStmt = $pdo->prepare('SELECT * FROM dbo.cotizacion_historial_estado WHERE id_cotizacion = ? ORDER BY fecha_cambio DESC');
++            $historialStmt->execute([(int)$id]);
++            $historial = $historialStmt->fetchAll();
+             $comunicaciones = [];
+             $versiones = [];
+             $documentos = [];
+         }
+     } else {
+-        // SP no existe, consulta directa
++        // SP no existe, consulta directa con todos los JOINs
+         $cabeceraStmt = $pdo->prepare('SELECT c.*,
+             e.razon_social AS empresa_razon_social,
++            e.nombre_comercial AS empresa_nombre_comercial,
+             e.ruc AS empresa_ruc,
+             e.correo AS empresa_correo,
+             e.telefono AS empresa_telefono,
+-            tc.nombre AS tipo_nombre,
++            ec.cargo AS contacto_cargo,
++            ec.telefono_empresa AS contacto_telefono,
++            ec.correo_empresa AS contacto_correo,
++            pp.nombres AS contacto_nombres,
++            pp.apellido_paterno AS contacto_apellidos,
++            s.nombre AS sucursal_nombre,
+             tc.codigo AS tipo_codigo,
++            tc.nombre AS tipo_nombre,
++            tc.titulo_documento AS tipo_titulo_default,
+             em.razon_social AS emisora_razon_social,
+             em.ruc AS emisora_ruc,
++            em.direccion AS emisora_direccion,
++            em.telefono AS emisora_telefono,
++            em.correo AS emisora_correo,
++            em.logo_base64 AS emisora_logo,
++            fp.descripcion AS forma_pago_descripcion,
++            fp.descuento_pct AS forma_pago_descuento_pct,
++            ga.descripcion AS garantia_descripcion,
++            pl.descripcion AS plazo_entrega_descripcion,
++            va.descripcion AS validez_descripcion,
++            va.dias AS validez_dias,
++            cb.banco AS cuenta_banco,
++            cb.numero_cuenta AS cuenta_numero,
++            cb.cci AS cuenta_cci,
++            zp.codigo AS zona_codigo,
++            zp.nombre AS zona_nombre,
+             p.nombres + N\' \' + p.apellido_paterno AS vendedor_nombre,
+-            uc.nombres + N\' \' + uc.apellido_paterno AS usuario_creador_nombre
++            uc.nombres + N\' \' + uc.apellido_paterno AS usuario_creador_nombre,
++            uc.correo AS usuario_creador_correo
+             FROM dbo.cotizacion c
+             LEFT JOIN dbo.empresa e ON c.id_empresa = e.id_empresa
++            LEFT JOIN dbo.empresa_contacto ec ON c.id_empresa_contacto = ec.id_empresa_contacto
++            LEFT JOIN dbo.persona pp ON ec.id_persona = pp.id_persona
++            LEFT JOIN dbo.empresa_sucursal s ON c.id_sucursal = s.id_sucursal
+             LEFT JOIN dbo.cotizacion_tipo_catalogo tc ON c.id_tipo = tc.id_tipo
+             LEFT JOIN dbo.cotizacion_empresa_emisora em ON c.id_emisora = em.id_emisora
++            LEFT JOIN dbo.cotizacion_forma_pago fp ON c.id_forma_pago = fp.id_forma_pago
++            LEFT JOIN dbo.cotizacion_garantia ga ON c.id_garantia = ga.id_garantia
++            LEFT JOIN dbo.cotizacion_plazo_entrega pl ON c.id_plazo_entrega = pl.id_plazo
++            LEFT JOIN dbo.cotizacion_validez va ON c.id_validez = va.id_validez
++            LEFT JOIN dbo.cotizacion_cuenta_bancaria cb ON c.id_cuenta_bancaria = cb.id_cuenta
++            LEFT JOIN dbo.cotizacion_zona_pricing zp ON c.id_zona_pricing = zp.id_zona
+             LEFT JOIN dbo.persona p ON c.id_vendedor = p.id_persona
+             LEFT JOIN dbo.persona uc ON c.id_usuario_creador = uc.id_persona
+             WHERE c.id_cotizacion = ?');
+         $cabeceraStmt->execute([(int)$id]);
+         $cabecera = $cabeceraStmt->fetch();
+-        $detalle = $pdo->prepare('SELECT * FROM dbo.cotizacion_detalle WHERE id_cotizacion = ? ORDER BY orden');
+-        $detalle->execute([(int)$id]);
+-        $detalle = $detalle->fetchAll();
+-        $historial = $pdo->prepare('SELECT * FROM dbo.cotizacion_historial_estado WHERE id_cotizacion = ? ORDER BY fecha_cambio DESC');
+-        $historial->execute([(int)$id]);
+-        $historial = $historial->fetchAll();
++        $detalleStmt = $pdo->prepare('SELECT * FROM dbo.cotizacion_detalle WHERE id_cotizacion = ? ORDER BY orden');
++        $detalleStmt->execute([(int)$id]);
++        $detalle = $detalleStmt->fetchAll();
++        $historialStmt = $pdo->prepare('SELECT * FROM dbo.cotizacion_historial_estado WHERE id_cotizacion = ? ORDER BY fecha_cambio DESC');
++        $historialStmt->execute([(int)$id]);
++        $historial = $historialStmt->fetchAll();
+         $comunicaciones = [];
+         $versiones = [];
+         $documentos = [];
+     }
+ 
++    // FIX BUG #11: garantizar que cabecera tenga cuentas_adicionales_json.
++    // El SP sp_cotizacion_get NO retorna esa columna (la lista explícita del SELECT
++    // del SP la omite). La consulta fallback (SELECT c.*) SÍ la trae. Para que la
++    // edición no borre las cuentas adicionales, agregamos la columna si falta.
++    if (is_array($cabecera) && !array_key_exists('cuentas_adicionales_json', $cabecera)) {
++        try {
++            $adStmt = $pdo->prepare('SELECT cuentas_adicionales_json FROM dbo.cotizacion WHERE id_cotizacion = ?');
++            $adStmt->execute([(int)$id]);
++            $cabecera['cuentas_adicionales_json'] = $adStmt->fetchColumn() ?: null;
++        } catch (Throwable $e) {}
++    }
++
+     if (!$cabecera) ApiResponse::error('not_found', 'Cotización no encontrada', 404);
+ 
+     ApiResponse::success([
+@@ -759,7 +874,7 @@ if ($method === 'PATCH' && is_numeric($id) && $action === null) {
+ if ($method === 'PATCH' && is_numeric($id) && $action === 'status') {
+     $body = json_decode(file_get_contents('php://input'), true) ?: [];
+ 
+-    if (empty($body['estado']))
++    if (!isset($body['estado']) || $body['estado'] === '')
+         ApiResponse::validationError(['estado' => 'Requerido']);
+ 
+     $estado = $body['estado'];
+diff --git a/api/routes/dashboard.php b/api/routes/dashboard.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/empresas (2).php b/api/routes/empresas (2).php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/empresas.php b/api/routes/empresas.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/encuestas.php b/api/routes/encuestas.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/exportaciones.php b/api/routes/exportaciones.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/geografia.php b/api/routes/geografia.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/geografia_extended.php b/api/routes/geografia_extended.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/grupos.php b/api/routes/grupos.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/motivos.php b/api/routes/motivos.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/notificaciones.php b/api/routes/notificaciones.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/permisos.php b/api/routes/permisos.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/personas.php b/api/routes/personas.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/reportes.php b/api/routes/reportes.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/rubros.php b/api/routes/rubros.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/sucursales.php b/api/routes/sucursales.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/tickets.php b/api/routes/tickets.php
+old mode 100644
+new mode 100755
+diff --git a/api/routes/tickets_files_post_fix.php b/api/routes/tickets_files_post_fix.php
+old mode 100644
+new mode 100755
+diff --git a/assets/css/app.css b/assets/css/app.css
+old mode 100644
+new mode 100755
+diff --git a/assets/img/apple-touch-icon.png b/assets/img/apple-touch-icon.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/badge-72.png b/assets/img/badge-72.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/favicon.ico b/assets/img/favicon.ico
+old mode 100644
+new mode 100755
+diff --git a/assets/img/favicon.png b/assets/img/favicon.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/icon-192.png b/assets/img/icon-192.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/icon-512.png b/assets/img/icon-512.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/maskable-512.png b/assets/img/maskable-512.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/shortcut-dash.png b/assets/img/shortcut-dash.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/shortcut-mine.png b/assets/img/shortcut-mine.png
+old mode 100644
+new mode 100755
+diff --git a/assets/img/shortcut-new.png b/assets/img/shortcut-new.png
+old mode 100644
+new mode 100755
+diff --git a/assets/js/app.js b/assets/js/app.js
+old mode 100644
+new mode 100755
+index e3d0b7c..e2f307e
+--- a/assets/js/app.js
++++ b/assets/js/app.js
+@@ -531,13 +531,16 @@ const App = {
+ 
+             if (!r.ok || !j.ok) {
+                 if (r.status === 401) {
+-                    // Sesion expirada - redirigir a login.
+-                    // Solo redirigir si no es una petición de polling en background
+-                    // (para no interrumpir al usuario mientras trabaja en un modal).
++                    // Sesión expirada.
++                    // - En peticiones normales: redirigir al login.
++                    // - En peticiones en background (polling, modales): retornar null
++                    //   explícitamente para que el caller pueda distinguir "sesión
++                    //   expirada" de "respuesta vacía" y hacer `if (!resp) return;`
++                    //   en vez de `.data` que rompe con TypeError.
+                     if (!opts.background) {
+                         window.location.href = '/login.php';
+                     }
+-                    return;
++                    return null;
+                 }
+                 if (r.status === 403) {
+                     // 403 Forbidden: el usuario no tiene permiso.
+diff --git a/assets/js/app_cotizaciones_menu_patch.js b/assets/js/app_cotizaciones_menu_patch.js
+old mode 100644
+new mode 100755
+diff --git a/assets/js/atencion_edit_helper.js b/assets/js/atencion_edit_helper.js
+old mode 100644
+new mode 100755
+diff --git a/assets/js/configuracion_emisoras_logo.js b/assets/js/configuracion_emisoras_logo.js
+old mode 100644
+new mode 100755
+diff --git a/assets/js/cotizaciones_form_patch.js b/assets/js/cotizaciones_form_patch.js
+old mode 100644
+new mode 100755
+diff --git a/assets/js/cotizaciones_view.js b/assets/js/cotizaciones_view.js
+old mode 100644
+new mode 100755
+diff --git a/assets/js/dashboard.js b/assets/js/dashboard.js
+old mode 100644
+new mode 100755
+diff --git a/assets/js/geo_helper.js b/assets/js/geo_helper.js
+old mode 100644
+new mode 100755
+diff --git a/assets/js/views.js b/assets/js/views.js
+old mode 100644
+new mode 100755
+index 5bce463..b7b2bb1
+--- a/assets/js/views.js
++++ b/assets/js/views.js
+@@ -5741,14 +5741,32 @@ App.views.cotizaciones = {
+                 ...this.state.filters,
+             });
+             const resp = await App.request('/cotizaciones?' + params.toString(), { background: true });
+-            const rows = resp.data || [];
+-            const total = resp.pagination?.total || 0;
++            if (!resp) {
++                // Sesión expirada en background: App.request devolvió null/undefined.
++                wrapper.innerHTML = '<div class="card-body text-center text-muted">Sesión expirada. <a href="/login.php">Inicia sesión de nuevo</a>.</div>';
++                return;
++            }
++            // IMPORTANTE: App.request desempaqueta j.data (línea 556 de app.js).
++            // Cuando el backend usa ApiResponse::paginated(), el JSON es:
++            //   { ok:true, data:[...filas...], pagination:{total,...} }
++            // App.request retorna j.data (el array de filas), por lo que aquí
++            // `resp` ya ES el array. Acceder a resp.data / resp.pagination era
++            // un bug que hacía que el listado quedara SIEMPRE vacío.
++            const rows = Array.isArray(resp) ? resp : (resp.data || resp.items || []);
++            const total = (resp && resp.pagination && typeof resp.pagination.total === 'number')
++                ? resp.pagination.total
++                : rows.length;
+ 
+             if (rows.length === 0) {
+                 wrapper.innerHTML = `
+                     <div class="card-body text-center">
+                         <i class="bi bi-inbox" style="font-size: 48px; color: #aaa;"></i>
+                         <p style="margin-top: 10px;">No hay cotizaciones que coincidan con los filtros.</p>
++                        <p style="margin-top: 10px; font-size: 12px;">
++                            <a href="/api/v1/cotizaciones/diagnostico" target="_blank" class="btn btn-link">
++                                <i class="bi bi-stethoscope"></i> Ejecutar diagnóstico del módulo
++                            </a>
++                        </p>
+                     </div>`;
+                 document.getElementById('cotizaciones-pagination-wrapper').innerHTML = '';
+                 return;
+@@ -6135,19 +6153,38 @@ App.views.cotizaciones = {
+         const isEdit = !!id;
+         container.innerHTML = `<div class="cotizaciones-loading">Cargando formulario...</div>`;
+ 
++      try {
+         // Cargar catálogos
+         if (!this.state.catalogos) {
+             const resp = await App.request('/cotizaciones/catalogos', { background: true });
++            if (!resp) {
++                // Sesión expirada en background
++                container.innerHTML = '<div class="card-body text-danger">Sesión expirada. <a href="/login.php">Inicia sesión de nuevo</a>.</div>';
++                return;
++            }
+             this.state.catalogos = resp;
+         }
+-        const cat = this.state.catalogos;
++        const cat = this.state.catalogos || {};
++        // Asegurar que cada catálogo sea un array (defensa contra respuestas parciales)
++        const tiposArr       = Array.isArray(cat.tipos)       ? cat.tipos       : [];
++        const emisorasArr    = Array.isArray(cat.emisoras)    ? cat.emisoras    : [];
++        const formasPagoArr  = Array.isArray(cat.formas_pago) ? cat.formas_pago : [];
++        const garantiasArr   = Array.isArray(cat.garantias)   ? cat.garantias   : [];
++        const plazosArr      = Array.isArray(cat.plazos)      ? cat.plazos      : [];
++        const validecesArr   = Array.isArray(cat.valideces)   ? cat.valideces   : [];
++        const cuentasArr     = Array.isArray(cat.cuentas)     ? cat.cuentas     : [];
++        const zonasArr       = Array.isArray(cat.zonas)       ? cat.zonas       : [];
+ 
+         // Cargar datos de la cotización si es edición
+         let cot = null, detalle = [];
+         let cuentasAdicionalesIds = [];
+         if (isEdit) {
+             const resp = await App.request(`/cotizaciones/${id}`, { background: true });
+-            cot = resp.cabecera;
++            if (!resp) {
++                container.innerHTML = '<div class="card-body text-danger">Sesión expirada. <a href="/login.php">Inicia sesión de nuevo</a>.</div>';
++                return;
++            }
++            cot = resp.cabecera || {};
+             detalle = resp.detalle || [];
+             if (cot.cuentas_adicionales_json) {
+                 try { cuentasAdicionalesIds = JSON.parse(cot.cuentas_adicionales_json) || []; }
+@@ -6216,13 +6253,13 @@ App.views.cotizaciones = {
+                             </small>
+                             <!-- Hidden select con todos los tipos para mapear Ventas→tipo VENTAS, Soporte→tipo SOPORTE -->
+                             <select id="id_tipo" class="form-select" style="display:none;">
+-                                ${cat.tipos.map(t => `<option value="${t.id_tipo}" data-titulo="${App.escapeHtml(t.titulo_documento || '')}" data-codigo-por-empresa="${t.codigo_por_empresa || 0}" data-prefijo="${App.escapeHtml(t.prefijo_codigo || '')}" data-codigo="${App.escapeHtml(t.codigo || '')}" ${cot && cot.id_tipo == t.id_tipo ? 'selected' : ''}>${App.escapeHtml(t.nombre)}</option>`).join('')}
++                                ${tiposArr.map(t => `<option value="${t.id_tipo}" data-titulo="${App.escapeHtml(t.titulo_documento || '')}" data-codigo-por-empresa="${t.codigo_por_empresa || 0}" data-prefijo="${App.escapeHtml(t.prefijo_codigo || '')}" data-codigo="${App.escapeHtml(t.codigo || '')}" ${cot && cot.id_tipo == t.id_tipo ? 'selected' : ''}>${App.escapeHtml(t.nombre)}</option>`).join('')}
+                             </select>
+                         </div>
+                         <div class="form-group">
+                             <label class="form-label">Empresa emisora <span class="req">*</span></label>
+                             <select id="id_emisora" class="form-select" required>
+-                                ${cat.emisoras.map(e => `<option value="${e.id_emisora}" ${cot && cot.id_emisora == e.id_emisora ? 'selected' : ''}>${App.escapeHtml(e.razon_social)}</option>`).join('')}
++                                ${emisorasArr.map(e => `<option value="${e.id_emisora}" ${cot && cot.id_emisora == e.id_emisora ? 'selected' : ''}>${App.escapeHtml(e.razon_social)}</option>`).join('')}
+                             </select>
+                         </div>
+                         <div class="form-group">
+@@ -6255,7 +6292,7 @@ App.views.cotizaciones = {
+                             <div style="display:flex;gap:4px;">
+                                 <select id="id_forma_pago" class="form-select" style="flex:1;">
+                                     <option value="">—</option>
+-                                    ${cat.formas_pago.map(f => `<option value="${f.id_forma_pago}" ${cot && cot.id_forma_pago == f.id_forma_pago ? 'selected' : ''}>${App.escapeHtml(f.descripcion.substring(0,60))}${f.descuento_pct > 0 ? ` (-${f.descuento_pct}%)` : ''}</option>`).join('')}
++                                    ${formasPagoArr.map(f => `<option value="${f.id_forma_pago}" ${cot && cot.id_forma_pago == f.id_forma_pago ? 'selected' : ''}>${App.escapeHtml((f.descripcion||'').substring(0,60))}${f.descuento_pct > 0 ? ` (-${f.descuento_pct}%)` : ''}</option>`).join('')}
+                                 </select>
+                                 <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showGestionarFormasPagoModal()" title="Gestionar formas de pago" style="padding:0 6px;">
+                                     <i class="bi bi-gear" style="font-size:16px;"></i>
+@@ -6269,7 +6306,7 @@ App.views.cotizaciones = {
+                             <label class="form-label">Garantía</label>
+                             <select id="id_garantia" class="form-select">
+                                 <option value="">—</option>
+-                                ${cat.garantias.map(g => `<option value="${g.id_garantia}" ${cot && cot.id_garantia == g.id_garantia ? 'selected' : ''}>${App.escapeHtml(g.descripcion.substring(0,60))}</option>`).join('')}
++                                ${garantiasArr.map(g => `<option value="${g.id_garantia}" ${cot && cot.id_garantia == g.id_garantia ? 'selected' : ''}>${App.escapeHtml((g.descripcion||'').substring(0,60))}</option>`).join('')}
+                             </select>
+                         </div>
+                     </div>
+@@ -6279,14 +6316,14 @@ App.views.cotizaciones = {
+                             <label class="form-label">Plazo de entrega</label>
+                             <select id="id_plazo_entrega" class="form-select">
+                                 <option value="">—</option>
+-                                ${cat.plazos.map(p => `<option value="${p.id_plazo}" ${cot && cot.id_plazo_entrega == p.id_plazo ? 'selected' : ''}>${App.escapeHtml(p.descripcion.substring(0,60))}</option>`).join('')}
++                                ${plazosArr.map(p => `<option value="${p.id_plazo}" ${cot && cot.id_plazo_entrega == p.id_plazo ? 'selected' : ''}>${App.escapeHtml((p.descripcion||'').substring(0,60))}</option>`).join('')}
+                             </select>
+                         </div>
+                         <div class="form-group">
+                             <label class="form-label">Validez</label>
+                             <select id="id_validez" class="form-select">
+                                 <option value="">—</option>
+-                                ${cat.valideces.map(v => `<option value="${v.id_validez}" ${cot && cot.id_validez == v.id_validez ? 'selected' : ''}>${App.escapeHtml(v.descripcion)}</option>`).join('')}
++                                ${validecesArr.map(v => `<option value="${v.id_validez}" ${cot && cot.id_validez == v.id_validez ? 'selected' : ''}>${App.escapeHtml(v.descripcion||'')}</option>`).join('')}
+                             </select>
+                         </div>
+                     </div>
+@@ -6297,7 +6334,7 @@ App.views.cotizaciones = {
+                             <div style="display:flex;gap:4px;">
+                                 <select id="id_cuenta_bancaria" class="form-select" style="flex:1;">
+                                     <option value="">—</option>
+-                                    ${cat.cuentas.map(c => `<option value="${c.id_cuenta}" ${cot && cot.id_cuenta_bancaria == c.id_cuenta ? 'selected' : ''}>${App.escapeHtml(c.banco + ' - ' + c.numero_cuenta)}</option>`).join('')}
++                                    ${cuentasArr.map(c => `<option value="${c.id_cuenta}" ${cot && cot.id_cuenta_bancaria == c.id_cuenta ? 'selected' : ''}>${App.escapeHtml((c.banco||'') + ' - ' + (c.numero_cuenta||''))}</option>`).join('')}
+                                 </select>
+                                 <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showGestionarCuentasModal()" title="Gestionar cuentas bancarias" style="padding:0 6px;">
+                                     <i class="bi bi-gear" style="font-size:16px;"></i>
+@@ -6307,8 +6344,24 @@ App.views.cotizaciones = {
+                                 </button>
+                             </div>
+                             <small style="color:#6c757d;font-size:12px;margin-top:4px;display:block;">
+-                                Las 3 cuentas por defecto (BBVA, BCP, Tarjeta) están preconfiguradas. Puedes editarlas o crear nuevas con el botón ⚙.
++                                Cuentas adicionales a mostrar en la cotización:
+                             </small>
++                            <div id="cuentas-adicionales-list" style="margin-top:6px;"></div>
++                        </div>
++                    </div>
++
++                    <div class="form-row" style="margin-top:8px;">
++                        <div class="form-group">
++                            <label class="form-label">Zona de pricing</label>
++                            <div style="display:flex;gap:4px;">
++                                <select id="id_zona_pricing" class="form-select" style="flex:1;" onchange="App.views.cotizaciones.recalcAll()">
++                                    <option value="">Ninguna</option>
++                                    ${zonasArr.map(z => `<option value="${z.id_zona}" ${cot && cot.id_zona_pricing == z.id_zona ? 'selected' : ''}>${App.escapeHtml(z.nombre)} (${App.escapeHtml(z.codigo || '')})</option>`).join('')}
++                                </select>
++                                <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showGestionarZonasModal()" title="Gestionar zonas" style="padding:0 6px;">
++                                    <i class="bi bi-gear" style="font-size:16px;"></i>
++                                </button>
++                            </div>
+                         </div>
+                     </div>
+ 
+@@ -6329,6 +6382,7 @@ App.views.cotizaciones = {
+                                     <th style="width:130px;">Código</th>
+                                     <th>Descripción</th>
+                                     <th style="width:60px;text-align:center;">Cant.</th>
++                                    <th style="width:60px;text-align:center;">U.M.</th>
+                                     <th style="width:100px;text-align:right;">P.U. (S/.)</th>
+                                     <th style="width:60px;text-align:center;">Desc%</th>
+                                     <th style="width:100px;text-align:right;">Subtotal</th>
+@@ -6338,11 +6392,12 @@ App.views.cotizaciones = {
+                             </thead>
+                             <tbody id="items-body">
+                                 ${detalle.map((d, i) => `
+-                                    <tr data-item-index="${i}">
++                                    <tr data-item-index="${i}" data-id-producto-catalogo="${d.id_producto_catalogo || ''}" data-unidad-medida="${d.unidad_medida || 'UND'}">
+                                         <td style="text-align:center;vertical-align:middle;">${i+1}</td>
+                                         <td><input type="text" style="width:120px;font-family:monospace;" class="form-input item-codigo" value="${App.escapeHtml(d.codigo || '')}" onchange="App.views.cotizaciones.recalcRow(this)"></td>
+                                         <td><textarea class="form-input item-desc" rows="2" style="width:100%;min-width:300px;" onchange="App.views.cotizaciones.recalcRow(this)">${App.escapeHtml(d.descripcion || '')}</textarea></td>
+                                         <td><input type="number" class="form-input item-cant" value="${d.cantidad}" min="1" step="1" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
++                                        <td><input type="text" class="form-input item-um" value="${App.escapeHtml(d.unidad_medida || 'UND')}" style="width:60px;text-align:center;"></td>
+                                         <td><input type="number" class="form-input item-pu" value="${d.precio_unitario}" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:90px;text-align:right;"></td>
+                                         <td><input type="number" class="form-input item-desc-pct" value="${d.descuento_pct || 0}" min="0" max="100" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
+                                         <td class="text-right item-subtotal" style="vertical-align:middle;font-weight:bold;">${parseFloat(d.subtotal || 0).toFixed(2)}</td>
+@@ -6365,7 +6420,7 @@ App.views.cotizaciones = {
+                     </div>
+ 
+                     <div style="margin-top:16px;text-align:right;">
+-                        <button type="button" class="btn btn-secondary" onclick="history.back()">Cancelar</button>
++                        <button type="button" class="btn btn-secondary" onclick="App.navigate('/cotizaciones')">Cancelar</button>
+                         <button type="button" class="btn btn-primary" onclick="App.views.cotizaciones.save(${isEdit ? id : 'null'})">
+                             <i class="bi bi-save"></i> ${isEdit ? 'Guardar cambios' : 'Crear cotización'}
+                         </button>
+@@ -6377,8 +6432,21 @@ App.views.cotizaciones = {
+         // Inicializar UI de cuentas adicionales
+         this.renderCuentasAdicionales();
+         this.recalcAll();
+-        // Inicializar título y preview del código según el tipo seleccionado
+-        setTimeout(() => this.actualizarTituloYCodigoPreview(), 100);
++        // Inicializar título y preview del código según el tipo seleccionado.
++        // Solo en modo creación: en edición el código real ya está en el input.
++        if (!isEdit) {
++            setTimeout(() => this.actualizarTituloYCodigoPreview(), 100);
++        }
++      } catch (e) {
++        console.error('[renderForm cotizaciones]', e);
++        container.innerHTML = `<div class="card-body text-danger">
++            <strong>Error al cargar formulario:</strong> ${App.escapeHtml(e.message || String(e))}
++            <div style="margin-top:10px;">
++                <button class="btn btn-link" onclick="App.navigate('/cotizaciones')">← Volver al listado</button>
++                <button class="btn btn-link" onclick="location.reload()">Reintentar</button>
++            </div>
++        </div>`;
++      }
+     },
+ 
+     /* ====== Helper para actualizar vista previa del código según área ====== */
+@@ -7538,8 +7606,9 @@ App.views.cotizaciones = {
+     /* ====== Recargar catálogos en el form sin perder lo que el usuario escribió ====== */
+     async reloadCatalogosInForm() {
+         const resp = await App.request('/cotizaciones/catalogos', { background: true });
++        if (!resp) return; // sesión expirada
+         this.state.catalogos = resp;
+-        const cat = resp;
++        const cat = resp || {};
+         const currentForma = document.getElementById('id_forma_pago')?.value;
+         const currentGarantia = document.getElementById('id_garantia')?.value;
+         const currentPlazo = document.getElementById('id_plazo_entrega')?.value;
+@@ -7549,32 +7618,32 @@ App.views.cotizaciones = {
+ 
+         const selForma = document.getElementById('id_forma_pago');
+         if (selForma) {
+-            selForma.innerHTML = '<option value="">—</option>' + cat.formas_pago.map(f => `<option value="${f.id_forma_pago}">${App.escapeHtml(f.descripcion.substring(0,60))}${f.descuento_pct > 0 ? ` (-${f.descuento_pct}%)` : ''}</option>`).join('');
++            selForma.innerHTML = '<option value="">—</option>' + (cat.formas_pago || []).map(f => `<option value="${f.id_forma_pago}">${App.escapeHtml((f.descripcion||'').substring(0,60))}${f.descuento_pct > 0 ? ` (-${f.descuento_pct}%)` : ''}</option>`).join('');
+             if (currentForma) selForma.value = currentForma;
+         }
+         const selGarantia = document.getElementById('id_garantia');
+         if (selGarantia) {
+-            selGarantia.innerHTML = '<option value="">—</option>' + cat.garantias.map(g => `<option value="${g.id_garantia}">${App.escapeHtml(g.descripcion.substring(0,60))}</option>`).join('');
++            selGarantia.innerHTML = '<option value="">—</option>' + (cat.garantias || []).map(g => `<option value="${g.id_garantia}">${App.escapeHtml((g.descripcion||'').substring(0,60))}</option>`).join('');
+             if (currentGarantia) selGarantia.value = currentGarantia;
+         }
+         const selPlazo = document.getElementById('id_plazo_entrega');
+         if (selPlazo) {
+-            selPlazo.innerHTML = '<option value="">—</option>' + cat.plazos.map(p => `<option value="${p.id_plazo}">${App.escapeHtml(p.descripcion.substring(0,60))}</option>`).join('');
++            selPlazo.innerHTML = '<option value="">—</option>' + (cat.plazos || []).map(p => `<option value="${p.id_plazo}">${App.escapeHtml((p.descripcion||'').substring(0,60))}</option>`).join('');
+             if (currentPlazo) selPlazo.value = currentPlazo;
+         }
+         const selValidez = document.getElementById('id_validez');
+         if (selValidez) {
+-            selValidez.innerHTML = '<option value="">—</option>' + cat.valideces.map(v => `<option value="${v.id_validez}">${App.escapeHtml(v.descripcion)}</option>`).join('');
++            selValidez.innerHTML = '<option value="">—</option>' + (cat.valideces || []).map(v => `<option value="${v.id_validez}">${App.escapeHtml(v.descripcion||'')}</option>`).join('');
+             if (currentValidez) selValidez.value = currentValidez;
+         }
+         const selCuenta = document.getElementById('id_cuenta_bancaria');
+         if (selCuenta) {
+-            selCuenta.innerHTML = '<option value="">—</option>' + cat.cuentas.map(c => `<option value="${c.id_cuenta}">${App.escapeHtml(c.banco + ' - ' + c.numero_cuenta)}</option>`).join('');
++            selCuenta.innerHTML = '<option value="">—</option>' + (cat.cuentas || []).map(c => `<option value="${c.id_cuenta}">${App.escapeHtml((c.banco||'') + ' - ' + (c.numero_cuenta||''))}</option>`).join('');
+             if (currentCuenta) selCuenta.value = currentCuenta;
+         }
+         const selZona = document.getElementById('id_zona_pricing');
+         if (selZona) {
+-            selZona.innerHTML = '<option value="">Ninguna</option>' + cat.zonas.map(z => `<option value="${z.id_zona}">${App.escapeHtml(z.nombre)}</option>`).join('');
++            selZona.innerHTML = '<option value="">Ninguna</option>' + (cat.zonas || []).map(z => `<option value="${z.id_zona}">${App.escapeHtml(z.nombre)}</option>`).join('');
+             if (currentZona) selZona.value = currentZona;
+         }
+         this.renderCuentasAdicionales();
+@@ -7588,15 +7657,20 @@ App.views.cotizaciones = {
+         // Resaltar la fila nueva con animación
+         tr.style.background = '#e8f5e9';
+         tr.style.transition = 'background 1.5s';
++        // Guardar id_producto_catalogo y unidad_medida como data-attributes
++        // del <tr> para que save() pueda incluirlos en el body.
++        tr.dataset.idProductoCatalogo = p.id_producto || p.id_producto_catalogo || '';
++        tr.dataset.unidadMedida = p.unidad_medida || 'UND';
+         tr.innerHTML = `
+             <td style="text-align:center;vertical-align:middle;">${i+1}</td>
+             <td><input type="text" style="width:120px;font-family:monospace;" class="form-input item-codigo" value="${App.escapeHtml(p.codigo || '')}" onchange="App.views.cotizaciones.recalcRow(this)"></td>
+             <td><textarea class="form-input item-desc" rows="2" style="width:100%;min-width:300px;" onchange="App.views.cotizaciones.recalcRow(this)">${App.escapeHtml(p.descripcion || '')}</textarea></td>
+-            <td><input type="number" class="form-input item-cant" value="1" min="1" step="1" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
++            <td><input type="number" class="form-input item-cant" value="${p.cantidad || 1}" min="1" step="1" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
++            <td><input type="text" class="form-input item-um" value="${App.escapeHtml(p.unidad_medida || 'UND')}" style="width:60px;text-align:center;"></td>
+             <td><input type="number" class="form-input item-pu" value="${p.precio_unitario || 0}" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:90px;text-align:right;"></td>
+-            <td><input type="number" class="form-input item-desc-pct" value="0" min="0" max="100" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
+-            <td class="text-right item-subtotal" style="vertical-align:middle;font-weight:bold;">${parseFloat(p.precio_unitario || 0).toFixed(2)}</td>
+-            <td class="center" style="vertical-align:middle;"><input type="checkbox" class="item-igv" checked></td>
++            <td><input type="number" class="form-input item-desc-pct" value="${p.descuento_pct || 0}" min="0" max="100" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
++            <td class="text-right item-subtotal" style="vertical-align:middle;font-weight:bold;">${parseFloat((p.cantidad || 1) * (p.precio_unitario || 0)).toFixed(2)}</td>
++            <td class="center" style="vertical-align:middle;"><input type="checkbox" class="item-igv" ${p.afecto_igv !== undefined ? (p.afecto_igv ? 'checked' : '') : 'checked'}></td>
+             <td style="vertical-align:middle;"><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove();App.views.cotizaciones.recalcAll();"><i class="bi bi-x"></i></button></td>
+         `;
+         tbody.appendChild(tr);
+@@ -7608,7 +7682,7 @@ App.views.cotizaciones = {
+     },
+ 
+     addEmptyItem() {
+-        this.addProductItem({codigo:'', descripcion:'', precio_unitario: 0});
++        this.addProductItem({codigo:'', descripcion:'', precio_unitario: 0, unidad_medida: 'UND'});
+     },
+ 
+     recalcRow(input) {
+@@ -7661,7 +7735,7 @@ App.views.cotizaciones = {
+             id_plazo_entrega: parseInt(document.getElementById('id_plazo_entrega').value) || null,
+             id_validez: parseInt(document.getElementById('id_validez').value) || null,
+             id_cuenta_bancaria: parseInt(document.getElementById('id_cuenta_bancaria').value) || null,
+-            cuentas_adicionales: [],
++            cuentas_adicionales: (this.state.formCuentasAdicionales || []).slice(),
+             id_zona_pricing: zonaEl ? (parseInt(zonaEl.value) || null) : null,
+             id_vendedor: parseInt(document.getElementById('id_vendedor').value) || null,
+             titulo_documento: tituloEl ? (tituloEl.value || null) : null,
+@@ -7674,15 +7748,24 @@ App.views.cotizaciones = {
+         if (!body.id_empresa) { App.toast('Selecciona una empresa cliente', 'error'); return; }
+         if (!body.id_tipo) { App.toast('Selecciona un área (Ventas o Soporte)', 'error'); return; }
+         if (!body.id_emisora) { App.toast('Selecciona una empresa emisora', 'error'); return; }
++        // Validar rangos coherentes de IGV y descuento para evitar totales negativos
++        if (isNaN(body.igv_pct) || body.igv_pct < 0 || body.igv_pct > 100) {
++            App.toast('IGV % debe estar entre 0 y 100', 'error'); return;
++        }
++        if (isNaN(body.descuento_global_pct) || body.descuento_global_pct < 0 || body.descuento_global_pct > 100) {
++            App.toast('Descuento global % debe estar entre 0 y 100', 'error'); return;
++        }
+ 
+         // Recolectar ítems
+         const rows = document.querySelectorAll('#items-body tr');
+         if (rows.length === 0) { App.toast('Agrega al menos un ítem', 'error'); return; }
+         rows.forEach(tr => {
+             body.detalle.push({
++                id_producto_catalogo: parseInt(tr.dataset.idProductoCatalogo) || null,
+                 codigo: tr.querySelector('.item-codigo').value,
+                 descripcion: tr.querySelector('.item-desc').value,
+                 cantidad: parseFloat(tr.querySelector('.item-cant').value) || 1,
++                unidad_medida: (tr.querySelector('.item-um')?.value || tr.dataset.unidadMedida || 'UND').trim(),
+                 precio_unitario: parseFloat(tr.querySelector('.item-pu').value) || 0,
+                 descuento_pct: parseFloat(tr.querySelector('.item-desc-pct').value) || 0,
+                 afecto_igv: tr.querySelector('.item-igv').checked ? 1 : 0,
+@@ -7814,18 +7897,20 @@ App.views.cotizaciones = {
+         formData.append('archivo', fileInput.files[0]);
+         formData.append('tipo_documento', 'ADJUNTO_GENERAL');
+         try {
+-            const token = App.config.user?.token;
+-            const resp = await fetch('/api/v1/cotizaciones/' + idCot + '/files', {
++            // Usar App.request que ya gestiona auth (cookie de sesión + Bearer
++            // token), credentials cross-origin, toasts y manejo de errores.
++            // App.request detecta FormData y NO fuerza Content-Type (líneas
++            // 503-505 de app.js), permitiendo que el navegador setee el
++            // boundary multipart/form-data correcto.
++            await App.request('/cotizaciones/' + idCot + '/files', {
+                 method: 'POST',
+                 body: formData,
+-                credentials: 'same-origin',
+             });
+-            const json = await resp.json();
+-            if (!resp.ok) throw new Error(json.message || 'Error al subir');
+             App.toast('Documento subido', 'success');
+             App.navigate('/cotizaciones/detalle/' + idCot);
+         } catch (e) {
+-            App.toast('Error: ' + e.message, 'error', 8000);
++            // App.request ya mostró el toast de error; solo loguear.
++            console.error('[uploadFile]', e);
+         }
+     },
+ };
+@@ -7903,9 +7988,23 @@ App.views.cotizaciones_productos = {
+             params.set('incluir_inactivos', '1');
+             params.set('limite', '2000');
+             const resp = await App.request('/cotizaciones/productos?' + params.toString(), { background: true });
++            if (!resp) {
++                // Sesión expirada en background
++                wrapper.innerHTML = '<div class="card-body text-center text-muted">Sesión expirada. <a href="/login.php">Inicia sesión de nuevo</a>.</div>';
++                return;
++            }
+             const rows = Array.isArray(resp) ? resp : (resp.data || []);
+             if (rows.length === 0) {
+-                wrapper.innerHTML = '<div class="card-body text-center"><i class="bi bi-inbox" style="font-size:48px;color:#aaa;"></i><p>No hay productos en el catálogo que coincidan.</p></div>';
++                wrapper.innerHTML = `
++                    <div class="card-body text-center">
++                        <i class="bi bi-inbox" style="font-size:48px;color:#aaa;"></i>
++                        <p>No hay productos en el catálogo que coincidan.</p>
++                        <p style="margin-top:10px;font-size:12px;">
++                            <a href="/api/v1/cotizaciones/diagnostico" target="_blank" class="btn btn-link">
++                                <i class="bi bi-stethoscope"></i> Ejecutar diagnóstico
++                            </a>
++                        </p>
++                    </div>`;
+                 return;
+             }
+             if (!this._productosTmp) this._productosTmp = {};
+diff --git a/cambiar_password.php b/cambiar_password.php
+old mode 100644
+new mode 100755
+diff --git a/composer.json b/composer.json
+old mode 100644
+new mode 100755
+diff --git a/config/database.php b/config/database.php
+old mode 100644
+new mode 100755
+diff --git a/db-diagnostico/db-diagnostico/README.md b/db-diagnostico/db-diagnostico/README.md
+old mode 100644
+new mode 100755
+diff --git a/db-diagnostico/db-diagnostico/diagnostico_completo.php b/db-diagnostico/db-diagnostico/diagnostico_completo.php
+old mode 100644
+new mode 100755
+diff --git a/db-diagnostico/db-diagnostico/login_debug.php b/db-diagnostico/db-diagnostico/login_debug.php
+old mode 100644
+new mode 100755
+diff --git a/db-diagnostico/db-diagnostico/phpinfo_minimal.php b/db-diagnostico/db-diagnostico/phpinfo_minimal.php
+old mode 100644
+new mode 100755
+diff --git a/diagnostico_completo.php b/diagnostico_completo.php
+old mode 100644
+new mode 100755
+diff --git a/diagnostico_jerarquia.php b/diagnostico_jerarquia.php
+old mode 100644
+new mode 100755
+diff --git a/docs/arquitectura_atenciones.pdf b/docs/arquitectura_atenciones.pdf
+old mode 100644
+new mode 100755
+diff --git a/fix_upload_limits.php b/fix_upload_limits.php
+old mode 100644
+new mode 100755
+diff --git a/fix_upload_limits.ps1 b/fix_upload_limits.ps1
+old mode 100644
+new mode 100755
+diff --git a/includes/CotizacionExporter.php b/includes/CotizacionExporter.php
+old mode 100644
+new mode 100755
+diff --git a/includes/PermisoHelper.php b/includes/PermisoHelper.php
+old mode 100644
+new mode 100755
+diff --git a/includes/api_response.php b/includes/api_response.php
+old mode 100644
+new mode 100755
+diff --git a/includes/audit.php b/includes/audit.php
+old mode 100644
+new mode 100755
+diff --git a/includes/auth.php b/includes/auth.php
+old mode 100644
+new mode 100755
+diff --git a/includes/session.php b/includes/session.php
+old mode 100644
+new mode 100755
+diff --git a/index.php b/index.php
+old mode 100644
+new mode 100755
+index 65a8683..c254560
+--- a/index.php
++++ b/index.php
+@@ -211,6 +211,7 @@ $assetHash = function(string $relativePath): string {
+     <script src="/assets/js/app.js?v=<?= $assetHash('assets/js/app.js') ?>"></script>
+     <script src="/assets/js/dashboard.js?v=<?= $assetHash('assets/js/dashboard.js') ?>"></script>
+     <script src="/assets/js/views.js?v=<?= $assetHash('assets/js/views.js') ?>"></script>
++    <script src="/assets/js/cotizaciones_form_patch.js?v=<?= $assetHash('assets/js/cotizaciones_form_patch.js') ?>"></script>
+     <script src="/pwa/push-client.js?v=<?= $assetHash('pwa/push-client.js') ?>"></script>
+ </body>
+ </html>
+diff --git a/login.php b/login.php
+old mode 100644
+new mode 100755
+diff --git a/login_debug.php b/login_debug.php
+old mode 100644
+new mode 100755
+diff --git a/logout.php b/logout.php
+old mode 100644
+new mode 100755
+diff --git a/modules/exportacion/worker.php b/modules/exportacion/worker.php
+old mode 100644
+new mode 100755
+diff --git a/modules/notificaciones/push_dispatcher.php b/modules/notificaciones/push_dispatcher.php
+old mode 100644
+new mode 100755
+diff --git a/phpinfo_minimal.php b/phpinfo_minimal.php
+old mode 100644
+new mode 100755
+diff --git a/ping.html b/ping.html
+old mode 100644
+new mode 100755
+diff --git a/ping.php b/ping.php
+old mode 100644
+new mode 100755
+diff --git a/pwa/manifest.json b/pwa/manifest.json
+old mode 100644
+new mode 100755
+diff --git a/pwa/push-client.js b/pwa/push-client.js
+old mode 100644
+new mode 100755
+diff --git a/pwa/service-worker.js b/pwa/service-worker.js
+old mode 100644
+new mode 100755
+index 01be56b..d89e582
+--- a/pwa/service-worker.js
++++ b/pwa/service-worker.js
+@@ -11,7 +11,7 @@
+  *  Version: 2.0  (cambiar para forzar update)
+  * ========================================================================== */
+ 
+-const VERSION = 'atenciones-v2.0.0';
++const VERSION = 'atenciones-v2.1.0';
+ const CACHE_STATIC = `${VERSION}-static`;
+ const CACHE_API    = `${VERSION}-api`;
+ const CACHE_IMG    = `${VERSION}-img`;
+@@ -64,9 +64,36 @@ self.addEventListener('fetch', (event) => {
+     return;
+   }
+ 
+-  // API GET -> Network First (con fallback stale)
++  // API GET -> Network Only para datos transaccionales (cotizaciones, tickets, etc.)
++  //          Network First (timeout 15s) para catalogos/estaticos.
++  // RAZON: si cacheamos respuestas vacias (cuando la BD esta sin seed),
++  // el usuario ve listados vacios para siempre aunque despues ejecute los seeds.
+   if (url.pathname.startsWith('/api/')) {
+-    event.respondWith(self.networkFirst(req, CACHE_API, 5000));
++    const noCachePatterns = [
++      '/api/v1/cotizaciones',
++      '/api/v1/tickets',
++      '/api/v1/atenciones',
++      '/api/v1/dashboard',
++      '/api/v1/notificaciones',
++      '/api/v1/encuestas',
++      '/api/v1/auditoria',
++      '/api/v1/exportaciones',
++      '/api/v1/personas',
++      '/api/v1/empresas',
++      '/api/v1/sucursales',
++      '/api/v1/contactos',
++      '/api/v1/motivos',
++      '/api/v1/rubros',
++      '/api/v1/grupos',
++    ];
++    const isDynamic = noCachePatterns.some(p => url.pathname.startsWith(p));
++    if (isDynamic) {
++      // Network only: NUNCA cacheamos datos transaccionales
++      event.respondWith(self.networkOnly(req));
++    } else {
++      // Network first con timeout mas largo para catalogos y autenticacion
++      event.respondWith(self.networkFirst(req, CACHE_API, 15000));
++    }
+     return;
+   }
+ 
+@@ -172,11 +199,27 @@ self.cacheFirst = async (req, cacheName) => {
+   }
+ };
+ 
+-self.networkFirst = async (req, cacheName, timeout = 5000) => {
++self.networkFirst = async (req, cacheName, timeout = 15000) => {
+   const cache = await caches.open(cacheName);
+   try {
+     const res = await self.fetchWithTimeout(req, timeout);
+-    if (res && res.status === 200) cache.put(req, res.clone());
++    // Solo cachear si la respuesta tiene datos reales (no arrays vacios).
++    // Evita cachear "sin productos" o "sin cotizaciones" cuando la BD esta vacia.
++    if (res && res.status === 200 && res.headers.get('content-type') && res.headers.get('content-type').includes('application/json')) {
++      try {
++        const clone = res.clone();
++        const body = await clone.json();
++        const data = body.data;
++        // Si data es un array vacio, NO cacheamos (podria ser que la BD aun no tiene seed)
++        if (Array.isArray(data) && data.length === 0) {
++          return res; // devolver sin cachear
++        }
++        cache.put(req, res.clone());
++      } catch (e) {
++        // Si no se puede parsear, cachear igual
++        cache.put(req, res.clone());
++      }
++    }
+     return res;
+   } catch (err) {
+     const cached = await cache.match(req);
+@@ -185,6 +228,18 @@ self.networkFirst = async (req, cacheName, timeout = 5000) => {
+   }
+ };
+ 
++/* Network Only: nunca cachea. Util para datos transaccionales (cotizaciones,
++   tickets, etc.) donde servir una respuesta cacheada puede mostrar datos
++   desactualizados al usuario. */
++self.networkOnly = async (req) => {
++  try {
++    return await fetch(req);
++  } catch (err) {
++    return new Response(JSON.stringify({ ok: false, error: 'offline', message: 'Sin conexion al servidor' }),
++      { status: 503, headers: { 'Content-Type': 'application/json' } });
++  }
++};
++
+ self.staleWhileRevalidate = async (req, cacheName) => {
+   const cache = await caches.open(cacheName);
+   const cached = await cache.match(req);
+diff --git a/reiniciar_app_pool.ps1 b/reiniciar_app_pool.ps1
+old mode 100644
+new mode 100755
+diff --git a/scripts/migrar_documentos_a_bd.php b/scripts/migrar_documentos_a_bd.php
+old mode 100644
+new mode 100755
+diff --git a/scripts_diag/ver_error_referencia.php b/scripts_diag/ver_error_referencia.php
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/02_extension_nuevas_opciones.sql b/scripts_sql/02_extension_nuevas_opciones.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/03_sp_auxiliares_php.sql b/scripts_sql/03_sp_auxiliares_php.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/04_fix_errores.sql b/scripts_sql/04_fix_errores.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/05_permisos_admin.sql b/scripts_sql/05_permisos_admin.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/06_jerarquia_validaciones.sql b/scripts_sql/06_jerarquia_validaciones.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/07_correcciones.sql b/scripts_sql/07_correcciones.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/08_ticket_documentos.sql b/scripts_sql/08_ticket_documentos.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/09_empresa_bajas.sql b/scripts_sql/09_empresa_bajas.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/10_empresa_sede_principal.sql b/scripts_sql/10_empresa_sede_principal.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/11_persona_datos_contacto_opcionales.sql b/scripts_sql/11_persona_datos_contacto_opcionales.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/12_divisiones_pais_crud.sql b/scripts_sql/12_divisiones_pais_crud.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/00_cotizaciones_drop_all.sql b/scripts_sql/cotizaciones/00_cotizaciones_drop_all.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/01_cotizaciones_tablas.sql b/scripts_sql/cotizaciones/01_cotizaciones_tablas.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/02_cotizaciones_seed_catalogos.sql b/scripts_sql/cotizaciones/02_cotizaciones_seed_catalogos.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/03_cotizaciones_seed_productos.sql b/scripts_sql/cotizaciones/03_cotizaciones_seed_productos.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/04_cotizaciones_seed_modulo_permisos.sql b/scripts_sql/cotizaciones/04_cotizaciones_seed_modulo_permisos.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/05_cotizaciones_sps_parte1.sql b/scripts_sql/cotizaciones/05_cotizaciones_sps_parte1.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/05_cotizaciones_sps_parte2.sql b/scripts_sql/cotizaciones/05_cotizaciones_sps_parte2.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/06_cotizaciones_run_all.sql b/scripts_sql/cotizaciones/06_cotizaciones_run_all.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/07_cotizaciones_multi_cuenta_y_catalogos.sql b/scripts_sql/cotizaciones/07_cotizaciones_multi_cuenta_y_catalogos.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/08_cotizaciones_crud_catalogos_y_codigo.sql b/scripts_sql/cotizaciones/08_cotizaciones_crud_catalogos_y_codigo.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/09_cotizaciones_recreate_sp_faltantes.sql b/scripts_sql/cotizaciones/09_cotizaciones_recreate_sp_faltantes.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/10_cotizaciones_fix_correlativo_global.sql b/scripts_sql/cotizaciones/10_cotizaciones_fix_correlativo_global.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/cotizaciones/11_cotizaciones_fix_sp_list_paged.sql b/scripts_sql/cotizaciones/11_cotizaciones_fix_sp_list_paged.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/scripts_sql_1/01_sp_documento_save.sql b/scripts_sql/scripts_sql_1/01_sp_documento_save.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/scripts_sql_1/02_sp_atencion_edit.sql b/scripts_sql/scripts_sql_1/02_sp_atencion_edit.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/scripts_sql_1/03_vw_divisiones_jerarquicas.sql b/scripts_sql/scripts_sql_1/03_vw_divisiones_jerarquicas.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/scripts_sql_1/04_sp_usuario_permisos.sql b/scripts_sql/scripts_sql_1/04_sp_usuario_permisos.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/scripts_sql_1/05_seed_modulos.sql b/scripts_sql/scripts_sql_1/05_seed_modulos.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/scripts_sql_1/sp_empresa_guardar.sql b/scripts_sql/scripts_sql_1/sp_empresa_guardar.sql
+old mode 100644
+new mode 100755
+diff --git a/scripts_sql/sp_empresa_guardar.sql b/scripts_sql/sp_empresa_guardar.sql
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/152c382216940d6cdc39c9de80532f3a162f6d75c050f8c8 b/storage/ticket_documents/152c382216940d6cdc39c9de80532f3a162f6d75c050f8c8
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/1df601f53146332fdf4a887a6baa63b8768305d24b40f0ca b/storage/ticket_documents/1df601f53146332fdf4a887a6baa63b8768305d24b40f0ca
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/23ec97319f95f4c756fa97be1eae918672cc635b552e277b b/storage/ticket_documents/23ec97319f95f4c756fa97be1eae918672cc635b552e277b
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/39845709d2e6026ef29b54c3717eabd1b54385a7419006ac b/storage/ticket_documents/39845709d2e6026ef29b54c3717eabd1b54385a7419006ac
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/46dfa10b56f843950aeb6843cf1f9726a80c0a3d20c04d78 b/storage/ticket_documents/46dfa10b56f843950aeb6843cf1f9726a80c0a3d20c04d78
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/a4d337a94a72bfa327709810ba526cef693bd9585e1b3c9c b/storage/ticket_documents/a4d337a94a72bfa327709810ba526cef693bd9585e1b3c9c
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/a6457e215b5ef509fad9fcd680d8704d3950e32fdfbef898 b/storage/ticket_documents/a6457e215b5ef509fad9fcd680d8704d3950e32fdfbef898
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/bd569a0bdb17e5375a496b5ba805c912efae84a9c3484d70 b/storage/ticket_documents/bd569a0bdb17e5375a496b5ba805c912efae84a9c3484d70
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/cb8438d570907432c8c37b143f4cce7c8605b1c8a49da20c b/storage/ticket_documents/cb8438d570907432c8c37b143f4cce7c8605b1c8a49da20c
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/fe30ae534ae30c9d87ba777cd90f0d4831f1180b5b56aba3 b/storage/ticket_documents/fe30ae534ae30c9d87ba777cd90f0d4831f1180b5b56aba3
+old mode 100644
+new mode 100755
+diff --git a/storage/ticket_documents/ff76eacd2fb987c0e6cc0c60b8e21fade67b882fa686ee70 b/storage/ticket_documents/ff76eacd2fb987c0e6cc0c60b8e21fade67b882fa686ee70
+old mode 100644
+new mode 100755
+diff --git a/test_db.php b/test_db.php
+old mode 100644
+new mode 100755
+diff --git a/test_db_conn.php b/test_db_conn.php
+old mode 100644
+new mode 100755
+diff --git a/test_ip_vs_nombre.php b/test_ip_vs_nombre.php
+old mode 100644
+new mode 100755
+diff --git a/test_js.php b/test_js.php
+old mode 100644
+new mode 100755
+diff --git a/test_php_limits.php b/test_php_limits.php
+old mode 100644
+new mode 100755
+diff --git a/test_router.php b/test_router.php
+old mode 100644
+new mode 100755
+diff --git a/test_upload_fix.php b/test_upload_fix.php
+old mode 100644
+new mode 100755
+diff --git a/tests/cotizaciones_test.php b/tests/cotizaciones_test.php
+old mode 100644
+new mode 100755
+diff --git a/tt.txt b/tt.txt
+old mode 100644
+new mode 100755
+diff --git a/web.config b/web.config
+old mode 100644
+new mode 100755
+diff --git a/web.config.minimal.xml b/web.config.minimal.xml
+old mode 100644
+new mode 100755
+diff --git a/worklog.md b/worklog.md
+old mode 100644
+new mode 100755

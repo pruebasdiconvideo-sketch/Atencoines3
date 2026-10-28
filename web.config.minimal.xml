@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  web.config v3 - Solución alternativa SIN URL Rewrite Module
+
+  Si no tienes URL Rewrite Module instalado, este web.config usa
+  handlers explícitos para que /api/v1/* funcione.
+
+  Funciona porque crea handler mappings directos en IIS.
+-->
+<configuration>
+  <system.webServer>
+
+    <!-- ====== DEFAULT DOCUMENT ====== -->
+    <defaultDocument>
+      <files>
+        <clear />
+        <add value="index.php" />
+        <add value="index.html" />
+      </files>
+    </defaultDocument>
+
+    <!-- ====== REQUEST LIMITS (50MB upload) ====== -->
+    <security>
+      <requestFiltering>
+        <requestLimits maxAllowedContentLength="52428800" />
+      </requestFiltering>
+    </security>
+
+  </system.webServer>
+</configuration>
