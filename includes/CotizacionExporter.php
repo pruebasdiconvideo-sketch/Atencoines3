@@ -65,6 +65,45 @@ final class CotizacionExporter
         $stmt->nextRowset(); $versiones      = $stmt->fetchAll();
         $stmt->nextRowset(); $documentos     = $stmt->fetchAll();
 
+        // ===== V8 PATCH: Cargar LOGO directamente de la BD (fallback robusto) =====
+        $logoSrc = !empty($cabecera['emisora_logo']) ? $cabecera['emisora_logo'] : null;
+        if (empty($logoSrc) && !empty($cabecera['id_emisora'])) {
+            try {
+                $stmtLogo = $pdo->prepare(
+                    "SELECT logo_base64 FROM dbo.cotizacion_empresa_emisora WHERE id_emisora = ?"
+                );
+                $stmtLogo->bindValue(1, (int)$cabecera['id_emisora'], PDO::PARAM_INT);
+                $stmtLogo->execute();
+                $logoBase64 = $stmtLogo->fetchColumn();
+                if (!empty($logoBase64)) {
+                    $cabecera['emisora_logo'] = $logoBase64;
+                    $logoSrc = $logoBase64;
+                }
+            } catch (Throwable $e) {
+                error_log('[CotizacionExporter] Error cargando logo: ' . $e->getMessage());
+            }
+        }
+
+        // ===== V8 PATCH: Cargar TODAS las cuentas bancarias activas de la emisora =====
+        $cuentasBancarias = [];
+        if (!empty($cabecera['id_emisora'])) {
+            try {
+                $stmtCuentas = $pdo->prepare(
+                    "SELECT id_cuenta, banco, numero_cuenta, cci, moneda, titular, orden
+                     FROM dbo.cotizacion_cuenta_bancaria
+                     WHERE id_emisora = ?
+                       AND activo = 1
+                     ORDER BY orden, id_cuenta"
+                );
+                $stmtCuentas->bindValue(1, (int)$cabecera['id_emisora'], PDO::PARAM_INT);
+                $stmtCuentas->execute();
+                $cuentasBancarias = $stmtCuentas->fetchAll();
+            } catch (Throwable $e) {
+                error_log('[CotizacionExporter] Error cargando cuentas: ' . $e->getMessage());
+            }
+        }
+        $cabecera['_cuentas_bancarias_todas'] = $cuentasBancarias;
+
         return [
             'cabecera'       => $cabecera,
             'detalle'        => $detalle,
@@ -150,6 +189,12 @@ final class CotizacionExporter
     {
         $html = '<div class="header">';
         $html .= '<div class="emisora">';
+        // ===== V8 PATCH: Mostrar LOGO si está cargado =====
+        if (!empty($c['emisora_logo'])) {
+            $html .= '<div style="float:left;margin-right:14px;margin-bottom:6px;">';
+            $html .= '<img src="' . htmlspecialchars($c['emisora_logo']) . '" style="max-width:160px;max-height:80px;object-fit:contain;" alt="Logo" />';
+            $html .= '</div>';
+        }
         $html .= '<div class="razon">' . htmlspecialchars($c['emisora_razon_social'] ?? '—') . '</div>';
         $html .= '<div class="ruc">RUC: ' . htmlspecialchars($c['emisora_ruc'] ?? '—') . '</div>';
         if (!empty($c['emisora_direccion'])) $html .= '<div class="dir">' . htmlspecialchars($c['emisora_direccion']) . '</div>';
@@ -215,7 +260,7 @@ final class CotizacionExporter
             $html .= '<td>' . nl2br(htmlspecialchars($d['descripcion'] ?? '')) . '</td>';
             $html .= '<td class="center">' . htmlspecialchars(number_format((float)$d['cantidad'], 0)) . '</td>';
             $html .= '<td class="num">' . number_format((float)$d['precio_unitario'], 2) . '</td>';
-            $html .= '<td class="center">' . (isset($d['descuento_pct']) ? number_format((float)$d['descuento_pct'], 0) : '0') . '</td>';
+            $html .= '<td class="center">' . (isset($d['descuento_pct']) ? number_format((float)$d['descuento_pct'], 2) : '0.00') . '</td>';
             $html .= '<td class="num">' . number_format((float)$d['subtotal'], 2) . '</td>';
             $html .= '</tr>';
         }
@@ -245,6 +290,22 @@ final class CotizacionExporter
         }
         if (!empty($c['snapshot_cuenta_bancaria'])) {
             $html .= '<div class="row"><div class="label">Cuenta Corriente:</div><div class="valor">' . htmlspecialchars($c['snapshot_cuenta_bancaria']) . '</div></div>';
+        }
+        // ===== V8 PATCH: Mostrar TODAS las cuentas bancarias activas de la emisora =====
+        if (!empty($c['_cuentas_bancarias_todas'])) {
+            $html .= '<div class="row"><div class="label">Cuentas Bancarias:</div><div class="valor">';
+            $html .= '<table style="width:100%;border-collapse:collapse;font-size:9pt;">';
+            $html .= '<tr style="background:#e0e0e0;"><th style="border:1px solid #000;padding:3px;">Banco</th><th style="border:1px solid #000;padding:3px;">N° Cuenta</th><th style="border:1px solid #000;padding:3px;">CCI</th><th style="border:1px solid #000;padding:3px;">Moneda</th></tr>';
+            foreach ($c['_cuentas_bancarias_todas'] as $cu) {
+                $html .= '<tr>';
+                $html .= '<td style="border:1px solid #000;padding:3px;">' . htmlspecialchars($cu['banco']) . '</td>';
+                $html .= '<td style="border:1px solid #000;padding:3px;">' . htmlspecialchars($cu['numero_cuenta']) . '</td>';
+                $html .= '<td style="border:1px solid #000;padding:3px;">' . htmlspecialchars($cu['cci'] ?? '—') . '</td>';
+                $html .= '<td style="border:1px solid #000;padding:3px;">' . htmlspecialchars($cu['moneda']) . '</td>';
+                $html .= '</tr>';
+            }
+            $html .= '</table>';
+            $html .= '</div></div>';
         }
         if (!empty($c['snapshot_plazo_entrega'])) {
             $html .= '<div class="row"><div class="label">Plazo de entrega:</div><div class="valor">' . htmlspecialchars($c['snapshot_plazo_entrega']) . '</div></div>';

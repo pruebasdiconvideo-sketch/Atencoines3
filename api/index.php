@@ -164,14 +164,38 @@ if (!$isPublicEndpoint) {
 // DISPATCH - cargar el archivo de ruta
 // ============================================================================
 $routeFile = __DIR__ . "/routes/{$resource}.php";
+
+// V15: Alias para dashboard de cotizaciones
+if ($resource === 'cotizaciones_dashboard') {
+    $routeFile = __DIR__ . "/routes/cotizaciones_dashboard.php";
+}
+
+// V16: Alias para dashboard de atenciones
+if ($resource === 'atenciones_dashboard') {
+    $routeFile = __DIR__ . "/routes/atenciones_dashboard.php";
+}
+
+// V17: Alias para auditoría por usuario
+if ($resource === 'auditoria_usuarios') {
+    $routeFile = __DIR__ . "/routes/auditoria_usuarios.php";
+}
+
 if (!is_file($routeFile)) {
-    ApiResponse::error('not_found', "Recurso '$resource' no existe. Disponibles: auth, dashboard, tickets, notificaciones, encuestas, auditoria, exportaciones", 404);
+    ApiResponse::error('not_found', "Recurso '$resource' no existe. Disponibles: auth, dashboard, tickets, notificaciones, encuestas, auditoria, exportaciones, cotizaciones, cotizaciones_dashboard", 404);
 }
 
 // Las variables $method, $segments, $resource, $id, $action, $user
 // estan disponibles en el scope del archivo requerido
 try {
     require $routeFile;
+
+    // ===== SPA PATCH V9 =====
+    // Intercepta POST /cotizaciones para usar sp_cotizacion_create_v5 (formato SERV-2026-001.1)
+    // y PATCH /cotizaciones/{id}/status para devolver mensaje claro (sin HTTP 500).
+    $__spaPatchV9 = __DIR__ . "/routes/spa_patch_v9.php";
+    if (is_file($__spaPatchV9)) {
+        require $__spaPatchV9;
+    }
 } catch (Throwable $e) {
     $traceId = Database::traceId();
     // Log enriquecido: incluye archivo, línea y tipo de excepción para que

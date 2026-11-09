@@ -213,5 +213,13 @@ $assetHash = function(string $relativePath): string {
     <script src="/assets/js/views.js?v=<?= $assetHash('assets/js/views.js') ?>"></script>
     <script src="/assets/js/cotizaciones_form_patch.js?v=<?= $assetHash('assets/js/cotizaciones_form_patch.js') ?>"></script>
     <script src="/pwa/push-client.js?v=<?= $assetHash('pwa/push-client.js') ?>"></script>
+    <!-- ===== SPA PATCH V9: cotizaciones_mejoras ===== -->
+    <!-- Sobrescribe App.views['cotizacion-nueva'] (sin Zona Pricing, Multi-select List Box
+         para cuentas bancarias, codigo SERV-2026-001.1) y App.views['cotizacion-detalle']
+         (boton Imprimir usa endpoint con logo, botones Excel/CSV con logo).
+         Anade App.views['configuracion-logo'] con boton en #/configuracion.
+         Los archivos cotizaciones_print.php y CotizacionExporter.php fueron modificados
+         para SIEMPRE mostrar el logo de la empresa emisora. -->
+    <script src="/assets/js/spa_patch_v9.js?v=9"></script>
 </body>
 </html>

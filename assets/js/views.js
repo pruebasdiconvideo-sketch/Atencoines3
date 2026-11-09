@@ -4658,14 +4658,38 @@ App.views.motivos = {
     currentPage: 1,
     perPage: 50,
     allRows: [],
+    searchQuery: '',
     async render(container) {
         this.currentPage = 1;
+        this.searchQuery = '';
         container.innerHTML = `<div class="card-header mb-4">
             <h1 style="color:var(--c-primary)">Motivos de Contacto</h1>
             <button class="btn btn-primary" id="btnNewMotivo"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nuevo Motivo</button>
         </div>
+        <div class="card" style="margin-bottom:14px;">
+            <div style="display:flex;gap:8px;padding:12px;align-items:flex-end;">
+                <div style="flex:1;">
+                    <label style="font-size:11px;color:#7f8c8d;display:block;margin-bottom:4px;">Buscar motivo</label>
+                    <input type="text" id="motivoSearchInput" class="form-input" placeholder="Escriba para filtrar..." style="width:100%;">
+                </div>
+                <button class="btn btn-primary" id="btnBuscarMotivo"><i class="bi bi-search"></i> Buscar</button>
+                <button class="btn btn-secondary" id="btnLimpiarMotivo"><i class="bi bi-x-lg"></i> Limpiar</button>
+            </div>
+        </div>
             <div class="card"><div id="tableContainer"><div class="loading-container"><div class="spinner"></div></div></div></div>`;
         document.getElementById('btnNewMotivo').addEventListener('click', () => this.showFormModal(null));
+        document.getElementById('btnBuscarMotivo').addEventListener('click', () => this.applySearch());
+        document.getElementById('btnLimpiarMotivo').addEventListener('click', () => this.clearSearch());
+        const input = document.getElementById('motivoSearchInput');
+        let timeoutId = null;
+        input.addEventListener('input', (e) => {
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                this.searchQuery = e.target.value.trim();
+                this.currentPage = 1;
+                this.applySearch();
+            }, 300);
+        });
         await this.load();
     },
     async load() {
@@ -4676,6 +4700,30 @@ App.views.motivos = {
         } catch (e) {
             document.getElementById('tableContainer').innerHTML = App.emptyState('⚠️', 'Error', e.message);
         }
+    },
+    async applySearch() {
+        try {
+            const url = this.searchQuery
+                ? '/motivos?query=' + encodeURIComponent(this.searchQuery)
+                : '/motivos';
+            const rows = await App.request(url);
+            this.allRows = Array.isArray(rows) ? rows : [];
+            this.renderTablePage();
+            if (this.allRows.length === 0) {
+                document.getElementById('tableContainer').innerHTML =
+                    App.emptyState('🔍', 'Sin resultados',
+                        'No se encontraron motivos que coincidan con "' + App.escapeHtml(this.searchQuery) + '".');
+            }
+        } catch (e) {
+            document.getElementById('tableContainer').innerHTML = App.emptyState('⚠️', 'Error', e.message);
+        }
+    },
+    async clearSearch() {
+        this.searchQuery = '';
+        const input = document.getElementById('motivoSearchInput');
+        if (input) input.value = '';
+        this.currentPage = 1;
+        await this.load();
     },
     renderTablePage() {
         const pageData = App.paginate(this.allRows, this.currentPage, this.perPage);
@@ -5660,6 +5708,21 @@ App.views.cotizaciones = {
                             </select>
                         </div>
                         <div class="form-group">
+                            <label class="form-label">Empresa</label>
+                            <div style="display:flex;gap:4px;">
+                                <input type="text" id="f-empresa-display" class="form-input" readonly
+                                    placeholder="Todas las empresas" style="flex:1;background:#f8f9fa;cursor:pointer;"
+                                    onclick="App.views.cotizaciones.showBuscarEmpresaFiltroModal()">
+                                <input type="hidden" id="f-empresa" value="">
+                                <button type="button" class="btn btn-primary btn-sm" onclick="App.views.cotizaciones.showBuscarEmpresaFiltroModal()">
+                                    <i class="bi bi-search"></i>
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="App.views.cotizaciones.limpiarFiltroEmpresa()" title="Quitar filtro de empresa">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">Año</label>
                             <select id="f-anio" class="form-select" onchange="App.views.cotizaciones.applyFilters()">
                                 <option value="">Todos los años</option>
@@ -5677,12 +5740,15 @@ App.views.cotizaciones = {
                             <label class="form-label">Hasta</label>
                             <input type="date" id="f-hasta" class="form-input" onchange="App.views.cotizaciones.applyFilters()">
                         </div>
-                        <div class="form-group" style="display:flex;align-items:flex-end;gap:4px;">
+                        <div class="form-group" style="display:flex;align-items:flex-end;gap:4px;flex-wrap:wrap;">
                             <button class="btn btn-secondary" onclick="App.views.cotizaciones.applyFilters()">
                                 <i class="bi bi-funnel"></i> Filtrar
                             </button>
                             <button class="btn btn-link" onclick="App.views.cotizaciones.clearFilters()">
                                 Limpiar
+                            </button>
+                            <button class="btn btn-success" onclick="App.views.cotizaciones.exportarExcelFiltrado()" title="Exportar listado filtrado a Excel">
+                                <i class="bi bi-file-excel"></i> Excel
                             </button>
                         </div>
                     </div>
@@ -5703,13 +5769,23 @@ App.views.cotizaciones = {
 
     async applyFilters() {
         this.state.currentPage = 1;
-        this.state.filters = {
+        /* V15: Solo incluir filtros con valor real (no vacios)
+           para que el backend los trate como NULL */
+        const rawFilters = {
             search:    document.getElementById('f-search')?.value || '',
             estado:    document.getElementById('f-estado')?.value || '',
+            id_empresa: document.getElementById('f-empresa')?.value || '',
             anio:      document.getElementById('f-anio')?.value || '',
             fecha_desde: document.getElementById('f-desde')?.value || '',
             fecha_hasta: document.getElementById('f-hasta')?.value || '',
         };
+        /* Filtrar solo los que tienen valor */
+        this.state.filters = {};
+        Object.keys(rawFilters).forEach(k => {
+            if (rawFilters[k] && rawFilters[k].trim() !== '') {
+                this.state.filters[k] = rawFilters[k];
+            }
+        });
         await this.loadList();
     },
 
@@ -5720,14 +5796,91 @@ App.views.cotizaciones = {
     },
 
     async clearFilters() {
-        document.getElementById('f-search').value = '';
-        document.getElementById('f-estado').value = '';
-        document.getElementById('f-anio').value = '';
-        document.getElementById('f-desde').value = '';
-        document.getElementById('f-hasta').value = '';
+        if (document.getElementById('f-search')) document.getElementById('f-search').value = '';
+        if (document.getElementById('f-estado')) document.getElementById('f-estado').value = '';
+        if (document.getElementById('f-empresa')) document.getElementById('f-empresa').value = '';
+        if (document.getElementById('f-empresa-display')) document.getElementById('f-empresa-display').value = '';
+        if (document.getElementById('f-anio')) document.getElementById('f-anio').value = '';
+        if (document.getElementById('f-desde')) document.getElementById('f-desde').value = '';
+        if (document.getElementById('f-hasta')) document.getElementById('f-hasta').value = '';
         this.state.filters = {};
         this.state.currentPage = 1;
         await this.loadList();
+    },
+
+    /* V14: Modal de búsqueda de empresa para el filtro del listado */
+    showBuscarEmpresaFiltroModal() {
+        App.showSelectorModal(
+            'Buscar empresa para filtrar',
+            '/empresas',
+            [
+                { key: 'ruc', label: 'RUC' },
+                { key: 'razon_social', label: 'Razón Social' }
+            ],
+            (item) => {
+                document.getElementById('f-empresa').value = item.id_empresa;
+                document.getElementById('f-empresa-display').value = item.razon_social;
+                this.applyFilters();
+            },
+            'query'
+        );
+    },
+
+    /* V14: Limpiar el filtro de empresa */
+    limpiarFiltroEmpresa() {
+        document.getElementById('f-empresa').value = '';
+        document.getElementById('f-empresa-display').value = '';
+        this.applyFilters();
+    },
+
+    /* V13: Exportar listado filtrado a Excel (descarga directa CSV compatible con Excel) */
+    async exportarExcelFiltrado() {
+        try {
+            App.toast('Generando Excel...', 'info');
+            const params = new URLSearchParams({
+                page: 1,
+                per_page: 5000,  /* exportar hasta 5000 registros */
+                ...this.state.filters,
+            });
+            const resp = await App.request('/cotizaciones?' + params.toString(), { background: true });
+            const rows = Array.isArray(resp) ? resp : (resp.data || []);
+            if (!rows.length) {
+                App.toast('No hay cotizaciones para exportar', 'warning');
+                return;
+            }
+            /* Generar CSV con BOM UTF-8 para que Excel lo abra correctamente */
+            const headers = ['ID','Código','Versión','Estado','Empresa','RUC','Tipo','Fecha Creación','Total','Moneda','Vendedor'];
+            const csvLines = [headers.join(',')];
+            rows.forEach(r => {
+                const line = [
+                    r.id_cotizacion,
+                    '"' + (r.codigo || '').replace(/"/g, '""') + '"',
+                    r.version_numero || 1,
+                    r.estado || '',
+                    '"' + (r.empresa_razon_social || '').replace(/"/g, '""') + '"',
+                    r.empresa_ruc || '',
+                    '"' + (r.tipo_nombre || '').replace(/"/g, '""') + '"',
+                    r.fecha_creacion || '',
+                    r.total || 0,
+                    r.moneda || 'PEN',
+                    '"' + (r.vendedor_nombre || '').replace(/"/g, '""') + '"'
+                ];
+                csvLines.push(line.join(','));
+            });
+            const csv = '\uFEFF' + csvLines.join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'cotizaciones_' + new Date().toISOString().slice(0,10) + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            App.toast('Excel exportado: ' + rows.length + ' cotizaciones', 'success');
+        } catch (e) {
+            App.toast('Error al exportar: ' + e.message, 'error');
+        }
     },
 
     async loadList() {
@@ -5828,6 +5981,7 @@ App.views.cotizaciones = {
                                         ${App.can('COTIZACIONES','modificar') ? `<button class="btn btn-sm btn-secondary" title="Editar" onclick="App.navigate('/cotizaciones/editar/${r.id_cotizacion}')"><i class="bi bi-pencil"></i></button>` : ''}
                                         ${App.can('COTIZACIONES','exportar') ? `<button class="btn btn-sm btn-secondary" title="Exportar PDF" onclick="App.views.cotizaciones.exportPdf(${r.id_cotizacion})"><i class="bi bi-file-pdf"></i></button>` : ''}
                                         ${App.can('COTIZACIONES','exportar') ? `<button class="btn btn-sm btn-success" title="Exportar Excel" onclick="App.views.cotizaciones.exportXlsx(${r.id_cotizacion})"><i class="bi bi-file-excel"></i></button>` : ''}
+                                        ${App.can('COTIZACIONES','eliminar') ? `<button class="btn btn-sm btn-danger" title="Eliminar" onclick="App.views.cotizaciones.eliminarCotizacion(${r.id_cotizacion}, '${App.escapeHtml(r.codigo || '').replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>` : ''}
                                     </td>
                                 </tr>
                             `).join('')}
@@ -5875,12 +6029,56 @@ App.views.cotizaciones = {
         await this.loadList();
     },
 
+    /* V16: Eliminar cotización (soft-delete con motivo) */
+    async eliminarCotizacion(id, codigo) {
+        const motivo = prompt(`¿Eliminar la cotización "${codigo}"?\n\nIngrese el motivo de eliminación (obligatorio):`);
+        if (!motivo || !motivo.trim()) {
+            if (motivo !== null) App.toast('Debe ingresar un motivo', 'warning');
+            return;
+        }
+        try {
+            await App.request(`/cotizaciones/${id}`, {
+                method: 'DELETE',
+                body: { motivo: motivo.trim() }
+            });
+            App.toast('Cotización eliminada', 'success');
+            await this.loadList();
+        } catch (e) {
+            App.toast('Error al eliminar: ' + e.message, 'error');
+        }
+    },
+
     /* ====== DETALLE ====== */
     async renderDetail(container, id) {
         container.innerHTML = `<div class="cotizaciones-loading">Cargando cotización...</div>`;
         try {
             const resp = await App.request(`/cotizaciones/${id}`, { background: true });
-            const c = resp.cabecera;
+            /* V20: resp puede ser null si la API no devuelve data correctamente.
+               App.request desempaqueta j.data, pero sp_cotizacion_get devuelve
+               múltiples result sets que el backend empaqueta como:
+               { ok:true, data:{ cabecera:{...}, detalle:[...], ... } }
+               App.request retorna j.data, por lo que resp = { cabecera, detalle, ... } */
+            if (!resp) {
+                container.innerHTML = `<div class="empty-state">
+                    <div class="empty-state__icon">⚠️</div>
+                    <div class="empty-state__title">No se pudo cargar</div>
+                    <div class="empty-state__desc">La API no devolvió datos. Es posible que la cotización no exista o que la sesión haya expirado.</div>
+                    <button class="btn btn-primary" onclick="App.navigate('/cotizaciones')">Volver</button>
+                </div>`;
+                return;
+            }
+            /* Si resp tiene cabecera, usarlo directamente.
+               Si no, pero resp tiene id_cotizacion, podría ser la cabecera misma */
+            const c = resp.cabecera || (resp.id_cotizacion ? resp : null);
+            if (!c) {
+                container.innerHTML = `<div class="empty-state">
+                    <div class="empty-state__icon">⚠️</div>
+                    <div class="empty-state__title">No se pudo cargar</div>
+                    <div class="empty-state__desc">La respuesta no contiene cabecera de cotización.</div>
+                    <button class="btn btn-primary" onclick="App.navigate('/cotizaciones')">Volver</button>
+                </div>`;
+                return;
+            }
             const detalle = resp.detalle || [];
             const historial = resp.historial || [];
             const comunicaciones = resp.comunicaciones || [];
@@ -5904,6 +6102,7 @@ App.views.cotizaciones = {
                         ${App.can('COTIZACIONES','exportar') ? `<button class="btn btn-secondary" onclick="App.views.cotizaciones.exportPdf(${c.id_cotizacion})"><i class="bi bi-file-pdf"></i> PDF</button>` : ''}
                         ${App.can('COTIZACIONES','exportar') ? `<button class="btn btn-success" onclick="App.views.cotizaciones.exportXlsx(${c.id_cotizacion})"><i class="bi bi-file-excel"></i> Excel</button>` : ''}
                         ${App.can('COTIZACIONES','modificar') ? `<button class="btn btn-primary" onclick="App.navigate('/cotizaciones/editar/${c.id_cotizacion}')"><i class="bi bi-pencil"></i> Editar</button>` : ''}
+                        ${App.can('COTIZACIONES','eliminar') ? `<button class="btn btn-danger" onclick="App.views.cotizaciones.eliminarCotizacion(${c.id_cotizacion}, '${App.escapeHtml(c.codigo || '').replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i> Eliminar</button>` : ''}
                     </div>
                 </div>
 
@@ -6151,6 +6350,11 @@ App.views.cotizaciones = {
     /* ====== FORMULARIO CREAR/EDITAR ====== */
     async renderForm(container, id) {
         const isEdit = !!id;
+        /* V23: Limpiar estado de selección previa */
+        this.state.selectedIdEmpresa = null;
+        this.state.editingIdEmpresa = null;
+        this.state.editingIdEmisora = null;
+        this.state.editingIdTipo = null;
         container.innerHTML = `<div class="cotizaciones-loading">Cargando formulario...</div>`;
 
       try {
@@ -6180,16 +6384,39 @@ App.views.cotizaciones = {
         let cuentasAdicionalesIds = [];
         if (isEdit) {
             const resp = await App.request(`/cotizaciones/${id}`, { background: true });
+            console.log('[renderForm] Editando cotización ID:', id, 'Respuesta:', resp);
             if (!resp) {
-                container.innerHTML = '<div class="card-body text-danger">Sesión expirada. <a href="/login.php">Inicia sesión de nuevo</a>.</div>';
+                container.innerHTML = '<div class="card-body text-danger">No se pudieron cargar los datos de la cotización. <a href="#/cotizaciones">Volver</a></div>';
                 return;
             }
-            cot = resp.cabecera || {};
-            detalle = resp.detalle || [];
+            /* V26: Manejar múltiples estructuras de respuesta */
+            if (resp.cabecera) {
+                cot = resp.cabecera;
+                detalle = resp.detalle || [];
+            } else if (resp.id_cotizacion) {
+                /* La respuesta ES la cabecera directamente */
+                cot = resp;
+                detalle = [];
+            } else if (resp.data && resp.data.cabecera) {
+                cot = resp.data.cabecera;
+                detalle = resp.data.detalle || [];
+            } else if (resp.data && resp.data.id_cotizacion) {
+                cot = resp.data;
+                detalle = [];
+            } else {
+                /* Si la respuesta es un objeto con datos de cotización, usarlo */
+                cot = resp;
+                detalle = [];
+            }
+            console.log('[renderForm] Cabecera cargada:', cot);
+            console.log('[renderForm] Detalle cargado:', detalle);
             if (cot.cuentas_adicionales_json) {
                 try { cuentasAdicionalesIds = JSON.parse(cot.cuentas_adicionales_json) || []; }
                 catch (e) { cuentasAdicionalesIds = []; }
             }
+            this.state.editingIdEmpresa = cot.id_empresa || null;
+            this.state.editingIdEmisora = cot.id_emisora || null;
+            this.state.editingIdTipo = cot.id_tipo || null;
         }
 
         this.state.formCuentasAdicionales = cuentasAdicionalesIds.slice();
@@ -6217,7 +6444,7 @@ App.views.cotizaciones = {
                                     <i class="bi bi-search"></i> Buscar
                                 </button>
                             </div>
-                            <input type="hidden" id="id_empresa" value="${cot ? cot.id_empresa : ''}">
+                            <input type="hidden" id="id_empresa" value="${cot && cot.id_empresa ? cot.id_empresa : ''}">
                         </div>
                         <div class="form-group">
                             <label class="form-label">Contacto</label>
@@ -6330,40 +6557,48 @@ App.views.cotizaciones = {
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">Cuenta bancaria</label>
-                            <div style="display:flex;gap:4px;">
-                                <select id="id_cuenta_bancaria" class="form-select" style="flex:1;">
-                                    <option value="">—</option>
-                                    ${cuentasArr.map(c => `<option value="${c.id_cuenta}" ${cot && cot.id_cuenta_bancaria == c.id_cuenta ? 'selected' : ''}>${App.escapeHtml((c.banco||'') + ' - ' + (c.numero_cuenta||''))}</option>`).join('')}
+                            <label class="form-label">Cuentas bancarias (Multi-select - Ctrl+Click para varias)</label>
+                            <div style="display:flex;gap:4px;align-items:flex-start;">
+                                <select id="id_cuenta_bancaria_multi" multiple size="6"
+                                        style="flex:1;min-height:160px;padding:8px;border:2px solid #1976d2;border-radius:6px;font-size:12px;background:#fff;"
+                                        onchange="App.views.cotizaciones.onMultiSelectCuentasChange()">
+                                    ${cuentasArr.map((c, i) => {
+                                        const isPrincipal = cot && cot.id_cuenta_bancaria == c.id_cuenta;
+                                        const isAdicional = (this.state.formCuentasAdicionales || []).indexOf(c.id_cuenta) !== -1;
+                                        const selected = (isPrincipal || isAdicional || (!cot && i < 3)) ? 'selected' : '';
+                                        return `<option value="${c.id_cuenta}" ${selected}>${App.escapeHtml((c.banco||'') + ' - ' + (c.numero_cuenta||'') + ' (' + (c.moneda||'PEN') + ')')}</option>`;
+                                    }).join('')}
                                 </select>
-                                <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showGestionarCuentasModal()" title="Gestionar cuentas bancarias" style="padding:0 6px;">
-                                    <i class="bi bi-gear" style="font-size:16px;"></i>
-                                </button>
-                                <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showCrearCuentaModal()" title="Crear nueva cuenta" style="padding:0 6px;">
-                                    <i class="bi bi-plus-lg" style="font-size:18px;"></i>
-                                </button>
+                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                    <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showGestionarCuentasModal()" title="Gestionar cuentas bancarias" style="padding:0 6px;">
+                                        <i class="bi bi-gear" style="font-size:16px;"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showCrearCuentaModal()" title="Crear nueva cuenta" style="padding:0 6px;">
+                                        <i class="bi bi-plus-lg" style="font-size:18px;"></i>
+                                    </button>
+                                </div>
                             </div>
                             <small style="color:#6c757d;font-size:12px;margin-top:4px;display:block;">
-                                Cuentas adicionales a mostrar en la cotización:
+                                Mantenga presionado <strong>Ctrl</strong> (o Cmd en Mac) y haga clic para seleccionar múltiples cuentas.
+                                Todas las cuentas seleccionadas aparecerán en el PDF y la cotización.
                             </small>
-                            <div id="cuentas-adicionales-list" style="margin-top:6px;"></div>
+                            <div style="margin-top:6px;display:flex;gap:6px;align-items:center;">
+                                <button type="button" class="btn btn-sm btn-primary" onclick="App.views.cotizaciones.seleccionarTodasCuentasForm(true)">Seleccionar todas</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="App.views.cotizaciones.seleccionarTodasCuentasForm(false)">Quitar seleccion</button>
+                                <div id="cuentas-count-info" style="margin-left:auto;padding:4px 10px;background:#e3f2fd;border-radius:4px;font-size:11px;color:#1976d2;font-weight:600;">
+                                    Seleccionadas: <span id="cuentas-count-num">0</span>
+                                </div>
+                            </div>
+                            <!-- Hidden select para compatibilidad con codigo existente -->
+                            <select id="id_cuenta_bancaria" style="display:none;">
+                                <option value="">—</option>
+                                ${cuentasArr.map(c => `<option value="${c.id_cuenta}">${App.escapeHtml((c.banco||'') + ' - ' + (c.numero_cuenta||''))}</option>`).join('')}
+                            </select>
+                            <div id="cuentas-adicionales-list" style="margin-top:10px;"></div>
                         </div>
                     </div>
 
-                    <div class="form-row" style="margin-top:8px;">
-                        <div class="form-group">
-                            <label class="form-label">Zona de pricing</label>
-                            <div style="display:flex;gap:4px;">
-                                <select id="id_zona_pricing" class="form-select" style="flex:1;" onchange="App.views.cotizaciones.recalcAll()">
-                                    <option value="">Ninguna</option>
-                                    ${zonasArr.map(z => `<option value="${z.id_zona}" ${cot && cot.id_zona_pricing == z.id_zona ? 'selected' : ''}>${App.escapeHtml(z.nombre)} (${App.escapeHtml(z.codigo || '')})</option>`).join('')}
-                                </select>
-                                <button type="button" class="btn btn-link" onclick="App.views.cotizaciones.showGestionarZonasModal()" title="Gestionar zonas" style="padding:0 6px;">
-                                    <i class="bi bi-gear" style="font-size:16px;"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- ZONA DE PRICING ELIMINADA DEL FORMULARIO V10 -->
 
                     <h5 style="margin-top:16px;">Ítems de la cotización</h5>
                     <div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
@@ -6375,46 +6610,44 @@ App.views.cotizaciones = {
                         </button>
                     </div>
                     <div style="overflow-x:auto;">
-                        <table class="table table-bordered" id="items-table" style="font-size:13px;min-width:800px;">
+                        <table class="table table-bordered" id="items-table" style="font-size:13px;width:100%;min-width:900px;">
                             <thead>
                                 <tr>
                                     <th style="width:30px;text-align:center;">#</th>
-                                    <th style="width:130px;">Código</th>
+                                    <th style="width:120px;">Código</th>
                                     <th>Descripción</th>
-                                    <th style="width:60px;text-align:center;">Cant.</th>
-                                    <th style="width:60px;text-align:center;">U.M.</th>
+                                    <th style="width:70px;text-align:center;">Cant.</th>
                                     <th style="width:100px;text-align:right;">P.U. (S/.)</th>
-                                    <th style="width:60px;text-align:center;">Desc%</th>
+                                    <th style="width:70px;text-align:center;">Desc%</th>
                                     <th style="width:100px;text-align:right;">Subtotal</th>
-                                    <th style="width:30px;text-align:center;">IGV</th>
-                                    <th style="width:30px;text-align:center;">-</th>
+                                    <th style="width:40px;text-align:center;">IGV</th>
+                                    <th style="width:35px;text-align:center;">-</th>
                                 </tr>
                             </thead>
                             <tbody id="items-body">
                                 ${detalle.map((d, i) => `
                                     <tr data-item-index="${i}" data-id-producto-catalogo="${d.id_producto_catalogo || ''}" data-unidad-medida="${d.unidad_medida || 'UND'}">
                                         <td style="text-align:center;vertical-align:middle;">${i+1}</td>
-                                        <td><input type="text" style="width:120px;font-family:monospace;" class="form-input item-codigo" value="${App.escapeHtml(d.codigo || '')}" onchange="App.views.cotizaciones.recalcRow(this)"></td>
-                                        <td><textarea class="form-input item-desc" rows="2" style="width:100%;min-width:300px;" onchange="App.views.cotizaciones.recalcRow(this)">${App.escapeHtml(d.descripcion || '')}</textarea></td>
-                                        <td><input type="number" class="form-input item-cant" value="${d.cantidad}" min="1" step="1" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
-                                        <td><input type="text" class="form-input item-um" value="${App.escapeHtml(d.unidad_medida || 'UND')}" style="width:60px;text-align:center;"></td>
-                                        <td><input type="number" class="form-input item-pu" value="${d.precio_unitario}" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:90px;text-align:right;"></td>
-                                        <td><input type="number" class="form-input item-desc-pct" value="${d.descuento_pct || 0}" min="0" max="100" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
-                                        <td class="text-right item-subtotal" style="vertical-align:middle;font-weight:bold;">${parseFloat(d.subtotal || 0).toFixed(2)}</td>
-                                        <td class="center" style="vertical-align:middle;"><input type="checkbox" class="item-igv" ${d.afecto_igv ? 'checked' : ''}></td>
-                                        <td style="vertical-align:middle;"><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove();App.views.cotizaciones.recalcAll();"><i class="bi bi-x"></i></button></td>
+                                        <td><input type="text" style="width:110px;font-family:monospace;font-size:12px;" class="form-input item-codigo" value="${App.escapeHtml(d.codigo || '')}" onchange="App.views.cotizaciones.recalcRow(this)"></td>
+                                        <td><textarea class="form-input item-desc" rows="2" style="width:100%;min-width:250px;font-size:12px;" onchange="App.views.cotizaciones.recalcRow(this)">${App.escapeHtml(d.descripcion || '')}</textarea></td>
+                                        <td><input type="number" class="form-input item-cant" value="${d.cantidad}" min="1" step="1" onchange="App.views.cotizaciones.recalcRow(this)" style="width:60px;text-align:center;font-size:13px;"></td>
+                                        <td><input type="number" class="form-input item-pu" value="${d.precio_unitario}" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:90px;text-align:right;font-size:13px;"></td>
+                                        <td><input type="number" class="form-input item-desc-pct" value="${d.descuento_pct || 0}" min="0" max="100" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:60px;text-align:center;font-size:13px;"></td>
+                                        <td class="text-right item-subtotal" style="vertical-align:middle;font-weight:bold;font-size:13px;">${parseFloat(d.subtotal || 0).toFixed(2)}</td>
+                                        <td class="center" style="vertical-align:middle;text-align:center;"><input type="checkbox" class="item-igv" ${d.afecto_igv ? 'checked' : ''}></td>
+                                        <td style="vertical-align:middle;text-align:center;"><button type="button" class="btn btn-danger btn-sm" style="padding:2px 6px;" onclick="this.closest('tr').remove();App.views.cotizaciones.recalcAll();"><i class="bi bi-x"></i></button></td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                             <tfoot>
-                                <tr><td colspan="6" class="text-right"><strong>Subtotal:</strong></td><td class="text-right" id="t-subtotal">0.00</td><td colspan="2"></td></tr>
-                                <tr><td colspan="6" class="text-right"><strong>Descuento global (%):</strong></td>
-                                    <td><input type="number" id="desc_global" value="${cot ? (cot.descuento_global_pct || 0) : 0}" step="0.01" min="0" max="100" onchange="App.views.cotizaciones.recalcAll()" style="width:80px;"></td>
-                                    <td colspan="2" class="text-right" id="t-desc-monto">0.00</td></tr>
-                                <tr><td colspan="6" class="text-right"><strong>IGV (%):</strong></td>
-                                    <td><input type="number" id="igv_pct" value="${cot ? (cot.igv_pct || 18) : 18}" step="0.01" min="0" max="100" onchange="App.views.cotizaciones.recalcAll()" style="width:80px;"></td>
-                                    <td colspan="2" class="text-right" id="t-igv">0.00</td></tr>
-                                <tr><td colspan="6" class="text-right"><strong>TOTAL:</strong></td><td class="text-right" id="t-total" colspan="2"><strong>0.00</strong></td></tr>
+                                <tr><td colspan="3" class="text-right"><strong>Subtotal:</strong></td><td colspan="3"></td><td class="text-right" id="t-subtotal">0.00</td><td colspan="2"></td></tr>
+                                <tr><td colspan="3" class="text-right"><strong>Descuento global (%):</strong></td>
+                                    <td colspan="3"><input type="number" id="desc_global" value="${cot ? (cot.descuento_global_pct || 0) : 0}" step="0.01" min="0" max="100" oninput="App.views.cotizaciones.recalcAll()" onchange="App.views.cotizaciones.recalcAll()" style="width:80px;font-size:13px;"></td>
+                                    <td class="text-right" id="t-desc-monto">- 0.00</td><td colspan="2"></td></tr>
+                                <tr><td colspan="3" class="text-right"><strong>IGV (%):</strong></td>
+                                    <td colspan="3"><input type="number" id="igv_pct" value="${cot ? (cot.igv_pct || 18) : 18}" step="0.01" min="0" max="100" oninput="App.views.cotizaciones.recalcAll()" onchange="App.views.cotizaciones.recalcAll()" style="width:80px;font-size:13px;"></td>
+                                    <td class="text-right" id="t-igv">0.00</td><td colspan="2"></td></tr>
+                                <tr><td colspan="3" class="text-right"><strong>TOTAL:</strong></td><td colspan="3"></td><td class="text-right" id="t-total"><strong>0.00</strong></td><td colspan="2"></td></tr>
                             </tfoot>
                         </table>
                     </div>
@@ -6433,9 +6666,31 @@ App.views.cotizaciones = {
         this.renderCuentasAdicionales();
         this.recalcAll();
         // Inicializar título y preview del código según el tipo seleccionado.
-        // Solo en modo creación: en edición el código real ya está en el input.
         if (!isEdit) {
             setTimeout(() => this.actualizarTituloYCodigoPreview(), 100);
+        }
+
+        /* V26: Si estamos editando, cargar las sucursales de la empresa y seleccionar la correcta */
+        if (isEdit && cot && cot.id_empresa) {
+            try {
+                const sucResp = await App.request('/sucursales?id_empresa=' + cot.id_empresa, { background: true });
+                const sucRows = Array.isArray(sucResp) ? sucResp : (sucResp.data || []);
+                const selSuc = document.getElementById('id_sucursal');
+                if (selSuc) {
+                    selSuc.innerHTML = '<option value="">Sin sucursal</option>' +
+                        sucRows.map(s => `<option value="${s.id_sucursal}" ${cot.id_sucursal == s.id_sucursal ? 'selected' : ''}>${App.escapeHtml(s.nombre)}</option>`).join('');
+                }
+            } catch(e) { console.error('[renderForm] cargar sucursales:', e); }
+
+            /* Sincronizar el área con el tipo */
+            if (cot.tipo_codigo === 'VENT' || cot.tipo_codigo === 'VENTAS') {
+                const areaSel = document.getElementById('area_cotizacion');
+                if (areaSel) areaSel.value = 'VENTAS';
+            } else if (cot.tipo_codigo === 'SERV' || cot.tipo_codigo === 'SOPORTE') {
+                const areaSel = document.getElementById('area_cotizacion');
+                if (areaSel) areaSel.value = 'SOPORTE';
+            }
+            this.actualizarTituloYCodigoPreview();
         }
       } catch (e) {
         console.error('[renderForm cotizaciones]', e);
@@ -6486,23 +6741,103 @@ App.views.cotizaciones = {
         }
     },
 
-    /* ====== Helper para renderizar chips de cuentas adicionales ====== */
+    /* ====== Helper para renderizar cuentas seleccionadas (chips visibles) ====== */
+    /* V13: Solo actualiza el contador y los chips. NO toca el Multi-select
+       para evitar bucle infinito con onMultiSelectCuentasChange. */
     renderCuentasAdicionales() {
         const cont = document.getElementById('cuentas-adicionales-list');
         if (!cont) return;
         const ids = this.state.formCuentasAdicionales || [];
         const cat = this.state.catalogos;
-        if (!ids.length) {
-            cont.innerHTML = '<span class="text-muted" id="cuentas-adicionales-empty">(ninguna)</span>';
+        const principal = parseInt(document.getElementById('id_cuenta_bancaria')?.value) || 0;
+
+        /* Actualizar contador */
+        const countEl = document.getElementById('cuentas-count-num');
+        if (countEl) {
+            const total = (principal ? 1 : 0) + ids.length;
+            countEl.textContent = total;
+        }
+
+        /* Mostrar chips de TODAS las cuentas seleccionadas (principal + adicionales) */
+        const todasIds = principal ? [principal, ...ids] : [...ids];
+        if (todasIds.length === 0) {
+            cont.innerHTML = '<span class="text-muted" style="font-size:12px;color:#dc3545;">⚠ No hay cuentas seleccionadas</span>';
             return;
         }
-        cont.innerHTML = ids.map(id => {
-            const cuenta = (cat.cuentas || []).find(c => c.id_cuenta == id);
-            const label = cuenta ? (cuenta.banco + ' - ' + cuenta.numero_cuenta) : 'ID ' + id;
-            return '<span class="badge badge-info" style="padding:4px 8px;display:inline-flex;align-items:center;gap:4px;">'
-                + App.escapeHtml(label)
-                + ' <button type="button" onclick="App.views.cotizaciones.removeCuentaAdicional(' + id + ')" style="background:none;border:none;color:#dc3545;cursor:pointer;padding:0 2px;font-weight:bold;">×</button></span>';
-        }).join('');
+        cont.innerHTML = '<div style="margin-top:8px;padding:8px;background:#f8f9fa;border-radius:4px;font-size:12px;">' +
+            '<strong style="color:#1976d2;">Cuentas que aparecerán en la cotización:</strong><br>' +
+            todasIds.map((id, i) => {
+                const cuenta = (cat.cuentas || []).find(c => c.id_cuenta == id);
+                const label = cuenta ? (cuenta.banco + ' - ' + cuenta.numero_cuenta + ' (' + (cuenta.moneda||'PEN') + ')') : 'ID ' + id;
+                const isPrincipal = i === 0 && principal;
+                return '<span class="badge ' + (isPrincipal ? 'badge-success' : 'badge-info') + '" style="padding:4px 10px;margin:2px;display:inline-flex;align-items:center;gap:6px;">' +
+                    (isPrincipal ? '★ ' : '') + App.escapeHtml(label) +
+                    ' <button type="button" onclick="App.views.cotizaciones.removeCuentaAdicional(' + id + ')" style="background:none;border:none;color:#dc3545;cursor:pointer;padding:0 2px;font-weight:bold;font-size:14px;">×</button></span>';
+            }).join('') + '</div>';
+    },
+
+    /* ====== V13: Manejador del Multi-select List Box ====== */
+    /* NO llama a renderCuentasAdicionales() que causaba bucle.
+       Solo actualiza el estado y los chips. */
+    onMultiSelectCuentasChange() {
+        const multi = document.getElementById('id_cuenta_bancaria_multi');
+        if (!multi) return;
+        const seleccionadas = Array.from(multi.selectedOptions).map(opt => parseInt(opt.value));
+        const hidden = document.getElementById('id_cuenta_bancaria');
+
+        if (seleccionadas.length === 0) {
+            this.state.formCuentasAdicionales = [];
+            if (hidden) hidden.value = '';
+            this.actualizarCuentasDisplay();
+            return;
+        }
+        /* La primera seleccionada es la principal, las demas son adicionales */
+        const principal = seleccionadas[0];
+        const adicionales = seleccionadas.slice(1);
+        if (hidden) hidden.value = principal;
+        this.state.formCuentasAdicionales = adicionales;
+        this.actualizarCuentasDisplay();
+    },
+
+    /* V13: Funcion separada para actualizar SOLO el display (sin tocar el Multi-select) */
+    actualizarCuentasDisplay() {
+        const ids = this.state.formCuentasAdicionales || [];
+        const cat = this.state.catalogos;
+        const principal = parseInt(document.getElementById('id_cuenta_bancaria')?.value) || 0;
+        const todasIds = principal ? [principal, ...ids] : [...ids];
+
+        /* Actualizar contador */
+        const countEl = document.getElementById('cuentas-count-num');
+        if (countEl) countEl.textContent = todasIds.length;
+
+        /* Actualizar chips */
+        const cont = document.getElementById('cuentas-adicionales-list');
+        if (!cont) return;
+        if (todasIds.length === 0) {
+            cont.innerHTML = '<div style="margin-top:8px;padding:8px;background:#fff5f5;border-radius:4px;font-size:12px;color:#dc3545;">⚠ No hay cuentas seleccionadas. Seleccione al menos una.</div>';
+            return;
+        }
+        cont.innerHTML = '<div style="margin-top:8px;padding:10px;background:#f0fff4;border:1px solid #28a745;border-radius:4px;font-size:12px;">' +
+            '<strong style="color:#28a745;">✓ Cuentas que aparecerán en la cotización (' + todasIds.length + '):</strong><br>' +
+            todasIds.map((id, i) => {
+                const cuenta = (cat.cuentas || []).find(c => c.id_cuenta == id);
+                const label = cuenta ? (cuenta.banco + ' - ' + cuenta.numero_cuenta + ' (' + (cuenta.moneda||'PEN') + ')') : 'ID ' + id;
+                const isPrincipal = i === 0 && principal;
+                return '<span class="badge ' + (isPrincipal ? 'badge-success' : 'badge-info') + '" style="padding:4px 10px;margin:3px 2px;display:inline-flex;align-items:center;gap:6px;font-size:11px;">' +
+                    (isPrincipal ? '★ PRINCIPAL: ' : '') + App.escapeHtml(label) +
+                    ' <button type="button" onclick="App.views.cotizaciones.removeCuentaAdicional(' + id + ')" style="background:none;border:none;color:#dc3545;cursor:pointer;padding:0 2px;font-weight:bold;font-size:14px;">×</button></span>';
+            }).join('') + '</div>';
+    },
+
+    /* ====== V13: Seleccionar/quitar todas las cuentas del Multi-select ====== */
+    seleccionarTodasCuentasForm(seleccionar) {
+        const multi = document.getElementById('id_cuenta_bancaria_multi');
+        if (!multi) return;
+        Array.from(multi.options).forEach(opt => {
+            opt.selected = seleccionar;
+        });
+        /* Forzar el evento change manualmente */
+        this.onMultiSelectCuentasChange();
     },
 
     addCuentaAdicional(idCuenta) {
@@ -6635,18 +6970,26 @@ App.views.cotizaciones = {
     },
 
     async selectEmpresaInModal(idEmpresa, nombre) {
-        document.getElementById('id_empresa').value = idEmpresa;
-        document.getElementById('empresa-display').value = nombre;
-        document.getElementById('id_empresa_contacto').value = '';
-        document.getElementById('contacto-display').value = '';
-        document.getElementById('btn-buscar-contacto').disabled = false;
+        /* V23: Guardar en state como respaldo */
+        this.state.selectedIdEmpresa = parseInt(idEmpresa) || 0;
+        const elEmp = document.getElementById('id_empresa');
+        if (elEmp) elEmp.value = idEmpresa;
+        const elDisp = document.getElementById('empresa-display');
+        if (elDisp) elDisp.value = nombre;
+        const elCont = document.getElementById('id_empresa_contacto');
+        if (elCont) elCont.value = '';
+        const elContDisp = document.getElementById('contacto-display');
+        if (elContDisp) elContDisp.value = '';
+        const btnCont = document.getElementById('btn-buscar-contacto');
+        if (btnCont) btnCont.disabled = false;
         try {
             const resp = await App.request('/sucursales?id_empresa=' + idEmpresa, { background: true });
             const sel = document.getElementById('id_sucursal');
-            const sucRows = Array.isArray(resp) ? resp : (resp.data || []);
-            sel.innerHTML = '<option value="">Sin sucursal</option>' + sucRows.map(s => `<option value="${s.id_sucursal}">${App.escapeHtml(s.nombre)}</option>`).join('');
+            if (sel) {
+                const sucRows = Array.isArray(resp) ? resp : (resp.data || []);
+                sel.innerHTML = '<option value="">Sin sucursal</option>' + sucRows.map(s => `<option value="${s.id_sucursal}">${App.escapeHtml(s.nombre)}</option>`).join('');
+            }
         } catch (e) {}
-        // Actualizar la vista previa del código (porque si el tipo es por empresa, cambia)
         this.actualizarTituloYCodigoPreview();
         App.closeModal();
     },
@@ -7663,15 +8006,14 @@ App.views.cotizaciones = {
         tr.dataset.unidadMedida = p.unidad_medida || 'UND';
         tr.innerHTML = `
             <td style="text-align:center;vertical-align:middle;">${i+1}</td>
-            <td><input type="text" style="width:120px;font-family:monospace;" class="form-input item-codigo" value="${App.escapeHtml(p.codigo || '')}" onchange="App.views.cotizaciones.recalcRow(this)"></td>
-            <td><textarea class="form-input item-desc" rows="2" style="width:100%;min-width:300px;" onchange="App.views.cotizaciones.recalcRow(this)">${App.escapeHtml(p.descripcion || '')}</textarea></td>
-            <td><input type="number" class="form-input item-cant" value="${p.cantidad || 1}" min="1" step="1" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
-            <td><input type="text" class="form-input item-um" value="${App.escapeHtml(p.unidad_medida || 'UND')}" style="width:60px;text-align:center;"></td>
-            <td><input type="number" class="form-input item-pu" value="${p.precio_unitario || 0}" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:90px;text-align:right;"></td>
-            <td><input type="number" class="form-input item-desc-pct" value="${p.descuento_pct || 0}" min="0" max="100" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:55px;text-align:center;"></td>
-            <td class="text-right item-subtotal" style="vertical-align:middle;font-weight:bold;">${parseFloat((p.cantidad || 1) * (p.precio_unitario || 0)).toFixed(2)}</td>
-            <td class="center" style="vertical-align:middle;"><input type="checkbox" class="item-igv" ${p.afecto_igv !== undefined ? (p.afecto_igv ? 'checked' : '') : 'checked'}></td>
-            <td style="vertical-align:middle;"><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove();App.views.cotizaciones.recalcAll();"><i class="bi bi-x"></i></button></td>
+            <td><input type="text" style="width:110px;font-family:monospace;font-size:12px;" class="form-input item-codigo" value="${App.escapeHtml(p.codigo || '')}" onchange="App.views.cotizaciones.recalcRow(this)"></td>
+            <td><textarea class="form-input item-desc" rows="2" style="width:100%;min-width:250px;font-size:12px;" onchange="App.views.cotizaciones.recalcRow(this)">${App.escapeHtml(p.descripcion || '')}</textarea></td>
+            <td><input type="number" class="form-input item-cant" value="${p.cantidad || 1}" min="1" step="1" onchange="App.views.cotizaciones.recalcRow(this)" style="width:60px;text-align:center;font-size:13px;"></td>
+            <td><input type="number" class="form-input item-pu" value="${p.precio_unitario || 0}" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:90px;text-align:right;font-size:13px;"></td>
+            <td><input type="number" class="form-input item-desc-pct" value="${p.descuento_pct || 0}" min="0" max="100" step="0.01" onchange="App.views.cotizaciones.recalcRow(this)" style="width:60px;text-align:center;font-size:13px;"></td>
+            <td class="text-right item-subtotal" style="vertical-align:middle;font-weight:bold;font-size:13px;">${parseFloat((p.cantidad || 1) * (p.precio_unitario || 0)).toFixed(2)}</td>
+            <td class="center" style="vertical-align:middle;text-align:center;"><input type="checkbox" class="item-igv" ${p.afecto_igv !== undefined ? (p.afecto_igv ? 'checked' : '') : 'checked'}></td>
+            <td style="vertical-align:middle;text-align:center;"><button type="button" class="btn btn-danger btn-sm" style="padding:2px 6px;" onclick="this.closest('tr').remove();App.views.cotizaciones.recalcAll();"><i class="bi bi-x"></i></button></td>
         `;
         tbody.appendChild(tr);
         // Hacer scroll a la nueva fila
@@ -7698,23 +8040,33 @@ App.views.cotizaciones = {
     recalcAll() {
         let subtotal = 0;
         document.querySelectorAll('#items-body tr').forEach(tr => {
-            const sub = parseFloat(tr.querySelector('.item-subtotal').textContent) || 0;
+            const sub = parseFloat(tr.querySelector('.item-subtotal')?.textContent || '0') || 0;
             subtotal += sub;
         });
-        document.getElementById('t-subtotal').textContent = subtotal.toFixed(2);
 
-        const descPct = parseFloat(document.getElementById('desc_global').value) || 0;
+        /* Subtotal (suma de subtotales de items, ya con descuento por item) */
+        const tSub = document.getElementById('t-subtotal');
+        if (tSub) tSub.textContent = subtotal.toFixed(2);
+
+        /* Descuento global (lo ingresa el usuario) */
+        const descPct = parseFloat(document.getElementById('desc_global')?.value || '0') || 0;
         const descMonto = subtotal * descPct / 100;
-        document.getElementById('t-desc-monto').textContent = descMonto.toFixed(2);
+        const tDesc = document.getElementById('t-desc-monto');
+        if (tDesc) tDesc.textContent = '- ' + descMonto.toFixed(2);
 
+        /* Base = subtotal - descuento global */
         const base = subtotal - descMonto;
-        const igvPct = parseFloat(document.getElementById('igv_pct').value) || 0;
-        const igv = base * igvPct / 100;
-        document.getElementById('t-igv').textContent = igv.toFixed(2);
 
+        /* IGV */
+        const igvPct = parseFloat(document.getElementById('igv_pct')?.value || '0') || 0;
+        const igv = base * igvPct / 100;
+        const tIgv = document.getElementById('t-igv');
+        if (tIgv) tIgv.textContent = igv.toFixed(2);
+
+        /* TOTAL */
         const total = base + igv;
         const tTotalTd = document.getElementById('t-total');
-        tTotalTd.innerHTML = '<strong>' + total.toFixed(2) + '</strong>';
+        if (tTotalTd) tTotalTd.innerHTML = '<strong>' + total.toFixed(2) + '</strong>';
     },
 
     async save(id) {
@@ -7724,30 +8076,89 @@ App.views.cotizaciones = {
         // Recolectar datos del form
         const tituloEl = document.getElementById('titulo_documento');
         const zonaEl = document.getElementById('id_zona_pricing');
+        /* V24: Leer id_empresa con múltiples fallbacks */
+        let idEmpresaRaw = document.getElementById('id_empresa')?.value || '';
+        let idEmpresa = parseInt(idEmpresaRaw) || 0;
+        /* Fallback 1: estado de edición */
+        if (!idEmpresa && id && this.state.editingIdEmpresa) {
+            idEmpresa = this.state.editingIdEmpresa;
+        }
+        /* Fallback 2: selección del modal */
+        if (!idEmpresa && this.state.selectedIdEmpresa) {
+            idEmpresa = this.state.selectedIdEmpresa;
+        }
+        /* Fallback 3: re-obtener de la API si estamos editando */
+        if (!idEmpresa && id) {
+            try {
+                const resp2 = await App.request(`/cotizaciones/${id}`, { background: true });
+                if (resp2) {
+                    const cab2 = resp2.cabecera || (resp2.id_cotizacion ? resp2 : null);
+                    if (cab2 && cab2.id_empresa) {
+                        idEmpresa = parseInt(cab2.id_empresa) || 0;
+                        this.state.editingIdEmpresa = idEmpresa;
+                    }
+                }
+            } catch(e) { console.error('[save] fallback API:', e); }
+        }
+        /* Leer id_tipo con fallback */
+        let idTipo = parseInt(document.getElementById('id_tipo')?.value || '0');
+        if (!idTipo && id && this.state.editingIdTipo) {
+            idTipo = this.state.editingIdTipo;
+        }
+        if (!idTipo && id) {
+            try {
+                const resp3 = await App.request(`/cotizaciones/${id}`, { background: true });
+                if (resp3) {
+                    const cab3 = resp3.cabecera || (resp3.id_cotizacion ? resp3 : null);
+                    if (cab3 && cab3.id_tipo) idTipo = parseInt(cab3.id_tipo) || 0;
+                    if (cab3 && cab3.id_emisora) idEmisora = parseInt(cab3.id_emisora) || 0;
+                }
+            } catch(e) {}
+        }
+        /* Leer id_emisora con fallback */
+        let idEmisora = parseInt(document.getElementById('id_emisora')?.value || '0');
+        if (!idEmisora && id && this.state.editingIdEmisora) {
+            idEmisora = this.state.editingIdEmisora;
+        }
         const body = {
-            id_empresa: parseInt(document.getElementById('id_empresa').value),
-            id_empresa_contacto: parseInt(document.getElementById('id_empresa_contacto').value) || null,
-            id_sucursal: parseInt(document.getElementById('id_sucursal').value) || null,
-            id_tipo: parseInt(document.getElementById('id_tipo').value),
-            id_emisora: parseInt(document.getElementById('id_emisora').value),
-            id_forma_pago: parseInt(document.getElementById('id_forma_pago').value) || null,
-            id_garantia: parseInt(document.getElementById('id_garantia').value) || null,
-            id_plazo_entrega: parseInt(document.getElementById('id_plazo_entrega').value) || null,
-            id_validez: parseInt(document.getElementById('id_validez').value) || null,
-            id_cuenta_bancaria: parseInt(document.getElementById('id_cuenta_bancaria').value) || null,
+            id_empresa: idEmpresa,
+            id_empresa_contacto: parseInt(document.getElementById('id_empresa_contacto')?.value || '0') || null,
+            id_sucursal: parseInt(document.getElementById('id_sucursal')?.value || '0') || null,
+            id_tipo: idTipo,
+            id_emisora: idEmisora,
+            id_forma_pago: parseInt(document.getElementById('id_forma_pago')?.value || '0') || null,
+            id_garantia: parseInt(document.getElementById('id_garantia')?.value || '0') || null,
+            id_plazo_entrega: parseInt(document.getElementById('id_plazo_entrega')?.value || '0') || null,
+            id_validez: parseInt(document.getElementById('id_validez')?.value || '0') || null,
+            id_cuenta_bancaria: parseInt(document.getElementById('id_cuenta_bancaria')?.value || '0') || null,
             cuentas_adicionales: (this.state.formCuentasAdicionales || []).slice(),
             id_zona_pricing: zonaEl ? (parseInt(zonaEl.value) || null) : null,
-            id_vendedor: parseInt(document.getElementById('id_vendedor').value) || null,
+            id_vendedor: parseInt(document.getElementById('id_vendedor')?.value || '0') || null,
             titulo_documento: tituloEl ? (tituloEl.value || null) : null,
             moneda: 'PEN',
-            igv_pct: parseFloat(document.getElementById('igv_pct').value) || 18,
-            descuento_global_pct: parseFloat(document.getElementById('desc_global').value) || 0,
+            igv_pct: parseFloat(document.getElementById('igv_pct')?.value || '18') || 18,
+            descuento_global_pct: parseFloat(document.getElementById('desc_global')?.value || '0') || 0,
             detalle: [],
         };
 
-        if (!body.id_empresa) { App.toast('Selecciona una empresa cliente', 'error'); return; }
-        if (!body.id_tipo) { App.toast('Selecciona un área (Ventas o Soporte)', 'error'); return; }
-        if (!body.id_emisora) { App.toast('Selecciona una empresa emisora', 'error'); return; }
+        if (!body.id_empresa) {
+            /* V25: Si estamos editando y no hay id_empresa, NO bloquear.
+               La cotización ya tiene empresa en la BD. Solo bloquear al crear nueva. */
+            if (!id) {
+                App.toast('Selecciona una empresa cliente (use el boton Buscar)', 'error');
+                return;
+            }
+            /* Al editar, simplemente no enviar id_empresa (el backend no lo necesita para PATCH) */
+            delete body.id_empresa;
+        }
+        if (!body.id_tipo) {
+            if (!id) { App.toast('Selecciona un área (Ventas o Soporte)', 'error'); return; }
+            delete body.id_tipo;
+        }
+        if (!body.id_emisora) {
+            if (!id) { App.toast('Selecciona una empresa emisora', 'error'); return; }
+            delete body.id_emisora;
+        }
         // Validar rangos coherentes de IGV y descuento para evitar totales negativos
         if (isNaN(body.igv_pct) || body.igv_pct < 0 || body.igv_pct > 100) {
             App.toast('IGV % debe estar entre 0 y 100', 'error'); return;

@@ -257,16 +257,16 @@ if ($method === 'GET' && $id === null) {
                 @page = ?, @per_page = ?'
         );
 
-        $stmt->bindValue(1,  isset($_GET['estado'])     ? $_GET['estado']    : null, PDO::PARAM_STR);
-        $stmt->bindValue(2,  isset($_GET['id_empresa']) ? (int)$_GET['id_empresa'] : null, PDO::PARAM_INT);
-        $stmt->bindValue(3,  isset($_GET['id_tipo'])    ? (int)$_GET['id_tipo']    : null, PDO::PARAM_INT);
-        $stmt->bindValue(4,  isset($_GET['id_usuario']) ? (int)$_GET['id_usuario'] : null, PDO::PARAM_INT);
-        $stmt->bindValue(5,  isset($_GET['id_vendedor'])? (int)$_GET['id_vendedor']: null, PDO::PARAM_INT);
-        $stmt->bindValue(6,  isset($_GET['fecha_desde'])? $_GET['fecha_desde']    : null, PDO::PARAM_STR);
-        $stmt->bindValue(7,  isset($_GET['fecha_hasta'])? $_GET['fecha_hasta']    : null, PDO::PARAM_STR);
-        $stmt->bindValue(8,  isset($_GET['search'])     ? $_GET['search']     : null, PDO::PARAM_STR);
+        $stmt->bindValue(1,  !empty($_GET['estado'])     ? $_GET['estado']    : null, PDO::PARAM_STR);
+        $stmt->bindValue(2,  !empty($_GET['id_empresa']) ? (int)$_GET['id_empresa'] : null, PDO::PARAM_INT);
+        $stmt->bindValue(3,  !empty($_GET['id_tipo'])    ? (int)$_GET['id_tipo']    : null, PDO::PARAM_INT);
+        $stmt->bindValue(4,  !empty($_GET['id_usuario']) ? (int)$_GET['id_usuario'] : null, PDO::PARAM_INT);
+        $stmt->bindValue(5,  !empty($_GET['id_vendedor'])? (int)$_GET['id_vendedor']: null, PDO::PARAM_INT);
+        $stmt->bindValue(6,  !empty($_GET['fecha_desde'])? $_GET['fecha_desde']    : null, PDO::PARAM_STR);
+        $stmt->bindValue(7,  !empty($_GET['fecha_hasta'])? $_GET['fecha_hasta']    : null, PDO::PARAM_STR);
+        $stmt->bindValue(8,  !empty($_GET['search'])     ? $_GET['search']     : null, PDO::PARAM_STR);
         $stmt->bindValue(9,  $incluirEliminados, PDO::PARAM_INT);
-        $stmt->bindValue(10, isset($_GET['anio'])       ? (int)$_GET['anio']  : null, PDO::PARAM_INT);
+        $stmt->bindValue(10, !empty($_GET['anio'])       ? (int)$_GET['anio']  : null, PDO::PARAM_INT);
         $stmt->bindValue(11, $page,    PDO::PARAM_INT);
         $stmt->bindValue(12, $perPage, PDO::PARAM_INT);
         $stmt->execute();
@@ -1322,8 +1322,21 @@ if ($method === 'PATCH' && $id === 'cuentas-bancarias' && is_numeric($action)) {
 if ($method === 'DELETE' && $id === 'cuentas-bancarias' && is_numeric($action)) {
     Auth::requirePermission('COTIZACIONES', 'modificar');
     try {
-        $rows = Database::callSP('sp_cotizacion_cuenta_bancaria_delete', [(int)$action]);
-        ApiResponse::success($rows[0] ?? [], 200, 'Cuenta bancaria eliminada');
+        /* V17: Usar SP v2 que hace soft-delete (desactiva en vez de bloquear) */
+        $pdoDelete = Database::connection();
+        $chk = $pdoDelete->prepare("SELECT CASE WHEN OBJECT_ID(N'dbo.sp_cotizacion_cuenta_bancaria_delete_v2','P') IS NOT NULL THEN 1 ELSE 0 END");
+        $chk->execute();
+        $spV2 = (int)$chk->fetchColumn();
+        if ($spV2) {
+            $rows = Database::callSP('sp_cotizacion_cuenta_bancaria_delete_v2', [(int)$action]);
+            ApiResponse::success($rows[0] ?? [], 200, 'Cuenta bancaria desactivada');
+        } else {
+            /* Fallback: desactivar directamente con UPDATE */
+            $stmtDel = $pdoDelete->prepare("UPDATE dbo.cotizacion_cuenta_bancaria SET activo = 0 WHERE id_cuenta = ?");
+            $stmtDel->bindValue(1, (int)$action, PDO::PARAM_INT);
+            $stmtDel->execute();
+            ApiResponse::success(['success' => 1, 'id_cuenta' => (int)$action], 200, 'Cuenta bancaria desactivada');
+        }
     } catch (Throwable $e) {
         ApiResponse::error('cuenta_delete_failed', $e->getMessage(), 422);
     }

@@ -59,6 +59,44 @@ try {
     $stmt->nextRowset();
     $documentos = $stmt->fetchAll();
 
+    // ===== V8 PATCH: Cargar el LOGO directamente de la BD (fallback robusto) =====
+    // Si el SP sp_cotizacion_get no devolvió emisora_logo, lo cargamos directamente.
+    $logoSrc = !empty($cab['emisora_logo']) ? $cab['emisora_logo'] : null;
+    if (empty($logoSrc) && !empty($cab['id_emisora'])) {
+        try {
+            $stmtLogo = $pdo->prepare(
+                "SELECT logo_base64 FROM dbo.cotizacion_empresa_emisora WHERE id_emisora = ?"
+            );
+            $stmtLogo->bindValue(1, (int)$cab['id_emisora'], PDO::PARAM_INT);
+            $stmtLogo->execute();
+            $logoBase64 = $stmtLogo->fetchColumn();
+            if (!empty($logoBase64)) {
+                $logoSrc = $logoBase64;
+            }
+        } catch (Throwable $e) {
+            error_log('[cotizaciones_print] Error cargando logo: ' . $e->getMessage());
+        }
+    }
+
+    // ===== V8 PATCH: Cargar TODAS las cuentas bancarias activas de la emisora =====
+    $cuentasBancariasPDF = [];
+    if (!empty($cab['id_emisora'])) {
+        try {
+            $stmtCuentas = $pdo->prepare(
+                "SELECT id_cuenta, banco, numero_cuenta, cci, moneda, titular, orden
+                 FROM dbo.cotizacion_cuenta_bancaria
+                 WHERE id_emisora = ?
+                   AND activo = 1
+                 ORDER BY orden, id_cuenta"
+            );
+            $stmtCuentas->bindValue(1, (int)$cab['id_emisora'], PDO::PARAM_INT);
+            $stmtCuentas->execute();
+            $cuentasBancariasPDF = $stmtCuentas->fetchAll();
+        } catch (Throwable $e) {
+            error_log('[cotizaciones_print] Error cargando cuentas: ' . $e->getMessage());
+        }
+    }
+
     // Función helper
     $fmtMoneda = function($val, $moneda = 'PEN') {
         $simbolo = ['PEN' => 'S/', 'USD' => '$', 'EUR' => '€'];
@@ -77,8 +115,6 @@ try {
     $esc = function($s) {
         return htmlspecialchars((string)($s ?? ''), ENT_QUOTES, 'UTF-8');
     };
-
-    $logoSrc = !empty($cab['emisora_logo']) ? $cab['emisora_logo'] : null;
 
     $estadoColor = [
         'BORRADOR'        => '#6c757d',
@@ -359,11 +395,40 @@ try {
       <?php if (!empty($cab['snapshot_garantia'])): ?>
         <div><span>Garantía:</span> <strong><?= $esc($cab['snapshot_garantia']) ?></strong></div>
       <?php endif; ?>
-      <?php if (!empty($cab['snapshot_cuenta_bancaria'])): ?>
-        <div style="grid-column: span 2;"><span>Cuenta bancaria:</span> <strong><?= nl2br($esc($cab['snapshot_cuenta_bancaria'])) ?></strong></div>
-      <?php endif; ?>
     </div>
   </div>
+
+  <!-- ===== V8 PATCH: CUENTAS BANCARIAS — TODAS LAS ACTIVAS DE LA EMISORA ===== -->
+  <?php if (!empty($cuentasBancariasPDF)): ?>
+  <div style="margin-top:12px;border:1px solid #ecf0f1;border-radius:4px;padding:10px 12px;background:#fafbfc;">
+    <h3 style="margin:0 0 8px 0;font-size:12px;color:#2c3e50;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #ecf0f1;padding-bottom:4px;">Cuentas bancarias</h3>
+    <div style="display:grid;gap:6px;font-size:11px;">
+      <?php foreach ($cuentasBancariasPDF as $i => $cu): ?>
+        <div style="display:grid;grid-template-columns:110px 1fr 90px;gap:6px;padding:5px 8px;background:#fff;border:1px solid #ecf0f1;border-radius:3px;">
+          <div>
+            <div style="font-weight:600;"><?= $esc($cu['banco']) ?></div>
+            <?php if (!empty($cu['titular'])): ?>
+              <div style="font-size:10px;color:#7f8c8d;"><?= $esc($cu['titular']) ?></div>
+            <?php endif; ?>
+          </div>
+          <div>
+            <div style="font-family:'Consolas',monospace;color:#2c3e50;">Cuenta: <?= $esc($cu['numero_cuenta']) ?></div>
+            <?php if (!empty($cu['cci'])): ?>
+              <div style="font-size:10px;color:#95a5a6;">CCI: <?= $esc($cu['cci']) ?></div>
+            <?php endif; ?>
+          </div>
+          <div style="text-align:right;color:#7f8c8d;"><?= $esc($cu['moneda']) ?></div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php elseif (!empty($cab['snapshot_cuenta_bancaria'])): ?>
+    <!-- Fallback: si no hay cuentas activas, mostrar el snapshot guardado -->
+    <div style="margin-top:12px;border:1px solid #ecf0f1;border-radius:4px;padding:10px 12px;background:#fafbfc;">
+      <h3 style="margin:0 0 8px 0;font-size:12px;color:#2c3e50;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #ecf0f1;padding-bottom:4px;">Cuentas bancarias</h3>
+      <div style="font-size:11px;"><strong><?= nl2br($esc($cab['snapshot_cuenta_bancaria'])) ?></strong></div>
+    </div>
+  <?php endif; ?>
 
   <!-- DETALLE -->
   <table class="detalle">
